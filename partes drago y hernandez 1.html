@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parte de Gestión de Siniestros</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --primary: #1e3a8a; --bg: #f1f5f9; --card: #ffffff; --border: #cbd5e1; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background: var(--bg); color: #0f172a; padding: 15px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        header { background: var(--primary); color: white; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
+        .panel { background: #e0f2fe; border: 1px solid #7dd3fc; padding: 15px; border-radius: 12px; margin-bottom: 20px; }
+        .btn-nuevo { background: #0284c7; color: white; border: none; padding: 8px 15px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+        .lista-partes { display: flex; gap: 8px; overflow-x: auto; margin-top: 10px; }
+        .chip { background: white; border: 1px solid #93c5fd; padding: 6px 12px; border-radius: 20px; font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+        .card { background: var(--card); border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid var(--border); }
+        .title { font-size: 1.1rem; color: var(--primary); border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 15px; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .full { grid-column: 1 / -1; }
+        label { font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 5px; }
+        input, select, textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: #f8fafc; }
+        .dropzone { border: 2px dashed var(--border); padding: 20px; text-align: center; background: #f8fafc; cursor: pointer; border-radius: 8px; }
+        .preview { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 10px; margin-top: 10px; }
+        .preview div { position: relative; }
+        .preview img { width: 100%; height: 80px; object-fit: cover; border-radius: 6px; }
+        .preview button { position: absolute; top: 2px; right: 2px; background: #ef4444; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; }
+        canvas { width: 100%; height: 180px; border: 1px solid var(--border); border-radius: 6px; background: #fff; touch-action: none; cursor: crosshair; }
+        .btn-submit { background: #16a34a; color: white; border: none; width: 100%; padding: 15px; border-radius: 8px; font-size: 1.1rem; font-weight: bold; cursor: pointer; }
+        .btn-print { background: #2563eb; color: white; border: none; width: 100%; padding: 12px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; display: none; margin-top: 10px; }
+        @media print { .panel, .btn-submit, .btn-print, .dropzone, button { display: none !important; } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header><h1>Parte de Gestión de Siniestros</h1></header>
+
+    <div class="panel">
+        <h3>📂 Partes Guardados</h3>
+        <button type="button" class="btn-nuevo" onclick="nuevoParte()">➕ Crear Nuevo Parte</button>
+        <div class="lista-partes" id="listaPartes"></div>
+    </div>
+
+    <form id="parteForm">
+        <input type="hidden" id="parte_id">
+
+        <div class="card">
+            <div class="title">1. Datos del Asegurado</div>
+            <div class="grid">
+                <div><label>Nombre</label><input type="text" id="nombre"></div>
+                <div><label>Apellido</label><input type="text" id="apellido"></div>
+                <div><label>DNI / NIF</label><input type="text" id="dni"></div>
+                <div><label>Teléfono</label><input type="tel" id="telefono"></div>
+                <div class="full"><label>Dirección</label><input type="text" id="direccion"></div>
+                <div><label>Compañía Aseguradora</label><input type="text" id="aseguradora"></div>
+                <div><label>Nº de Parte</label><input type="text" id="num_parte"></div>
+                <div><label>Hora</label><input type="time" id="hora"></div>
+                <div class="full"><label>Descripción / Qué Hacer</label><textarea id="que_hacer"></textarea></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="title">2. Comentarios y Fotos</div>
+            <div class="grid">
+                <div class="full"><label>Observaciones</label><textarea id="observaciones"></textarea></div>
+                <div class="full">
+                    <label>Fotos de los Daños</label>
+                    <div class="dropzone" onclick="document.getElementById('fotosInput').click()">
+                        📷 <strong>Haz clic aquí para añadir fotos</strong>
+                        <input type="file" id="fotosInput" multiple accept="image/*" style="display:none">
+                    </div>
+                    <div class="preview" id="previewGrid"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="title">3. Evaluación de Daños</div>
+            <div class="grid">
+                <div class="full"><label>¿Hay Daños?</label><select id="hay_danos"><option value="No">No</option><option value="Si">Sí</option></select></div>
+                <div class="full"><label>¿Dónde están los daños?</label><input type="text" id="donde_danos"></div>
+                <div><label>Gremios Solicitar</label><input type="text" id="gremios"></div>
+                <div><label>m² Correspondientes</label><input type="text" id="m2_correspondan"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="title">4. Datos del Perjudicado</div>
+            <div class="grid">
+                <div><label>Teléfono Perjudicado</label><input type="tel" id="perjudicado_tlf"></div>
+                <div><label>Nº Vivienda</label><input type="text" id="perjudicado_vivienda"></div>
+                <div class="full"><label>Daños Perjudicado</label><textarea id="perjudicado_danos"></textarea></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="title">5. Conformidad y Firma</div>
+            <div class="grid">
+                <div class="full"><label>DNI Firmante</label><input type="text" id="firma_dni"></div>
+                <div class="full">
+                    <label>Firma Manuscrita (Dibuja aquí)</label>
+                    <canvas id="signature-pad"></canvas>
+                    <button type="button" onclick="limpiarFirma()" style="margin-top:5px; padding:5px 10px; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer;">Borrar Firma</button>
+                </div>
+            </div>
+        </div>
+
+        <button type="button" class="btn-submit" onclick="guardarParteBD()">💾 Guardar Parte en la Nube</button>
+        <button type="button" id="btnDescargarPDF" class="btn-print" onclick="window.print()">📄 Descargar / Imprimir Parte</button>
+    </form>
+</div>
+
+<script>
+    const _supabase = supabase.createClient(
+        "https://lqlicxwfzwbbqyhhhssn.supabase.co",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxxbGljeHdmendiYnF5aGhoc3NuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAzNTA0MjQsImV4cCI6MjA1NTkyNjQyNH0.bBAtxS9P_Q9o0E44_bBnd3-OvhB5fDEx9tNIs-mThb4"
+    );
+
+    /* FIRMA */
+    const canvas = document.getElementById('signature-pad');
+    const ctx = canvas.getContext('2d');
+    let dibujando = false, hayFirma = false;
+
+    function resizeCanvas() {
+        canvas.width = canvas.offsetWidth;
+        canvas.height = 180;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#000';
+    }
+    window.addEventListener('load', resizeCanvas);
+    window.addEventListener('resize', resizeCanvas);
+
+    function getPos(e) {
+        const r = canvas.getBoundingClientRect();
+        const c = e.touches ? e.touches[0] : e;
+        return { x: c.clientX - r.left, y: c.clientY - r.top };
+    }
+    function start(e) { e.preventDefault(); dibujando = hayFirma = true; ctx.beginPath(); const p = getPos(e); ctx.moveTo(p.x, p.y); }
+    function move(e) { if(!dibujando) return; e.preventDefault(); const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+    function stop() { dibujando = false; }
+
+    canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); window.addEventListener('mouseup', stop);
+    canvas.addEventListener('touchstart', start, {passive:false}); canvas.addEventListener('touchmove', move, {passive:false}); window.addEventListener('touchend', stop);
+    function limpiarFirma() { ctx.clearRect(0, 0, canvas.width, canvas.height); hayFirma = false; }
+
+    /* FOTOS */
+    let fotos = [];
+    document.getElementById('fotosInput').addEventListener('change', function(e) {
+        Array.from(e.target.files).forEach(f => {
+            const r = new FileReader();
+            r.onload = ev => {
+                const img = new Image();
+                img.onload = () => {
+                    const c = document.createElement('canvas');
+                    let w = img.width, h = img.height;
+                    if(w > 400) { h = (400/w)*h; w = 400; }
+                    c.width = w; c.height = h;
+                    c.getContext('2d').drawImage(img,0,0,w,h);
+                    fotos.push(c.toDataURL('image/jpeg', 0.5));
+                    renderFotos();
+                };
+                img.src = ev.target.result;
+            };
+            r.readAsDataURL(f);
+        });
+        this.value = '';
+    });
+    function renderFotos() {
+        const g = document.getElementById('previewGrid');
+        g.innerHTML = '';
+        fotos.forEach((s, i) => {
+            g.innerHTML += <div><img src="${s}"><button type="button" onclick="fotos.splice(${i},1);renderFotos();">✕</button></div>;
+        });
+    }
+
+    /* GUARDAR Y CARGAR */
+    async function guardarParteBD() {
+        const id = document.getElementById('parte_id').value;
+        const payload = {
+            nombre: document.getElementById('nombre').value,
+            apellido: document.getElementById('apellido').value,
+            dni: document.getElementById('dni').value,
+            telefono: document.getElementById('telefono').value,
+            direccion: document.getElementById('direccion').value,
+            aseguradora: document.getElementById('aseguradora').value,
+            num_parte: document.getElementById('num_parte').value,
+            hora: document.getElementById('hora').value,
+            que_hacer: document.getElementById('que_hacer').value,
+            observaciones: document.getElementById('observaciones').value,
+            hay_danos: document.getElementById('hay_danos').value,
+            donde_danos: document.getElementById('donde_danos').value,
+            gremios: document.getElementById('gremios').value,
+            m2_correspondan: document.getElementById('m2_correspondan').value,
+            perjudicado_tlf: document.getElementById('perjudicado_tlf').value,
+            perjudicado_vivienda: document.getElementById('perjudicado_vivienda').value,
+            perjudicado_danos: document.getElementById('perjudicado_danos').value,
+            firma_dni: document.getElementById('firma_dni').value,
+            firma_img: hayFirma ? canvas.toDataURL() : null,
+            fotos: JSON.stringify(fotos)
+        };
+
+        const res = id ? await _supabase.from('partes').update(payload).eq('id', id) : await _supabase.from('partes').insert([payload]);
+        if (res.error) alert("Error: " + res.error.message);
+        else { alert("¡Guardado en la nube con éxito!"); cargarLista(); }
+    }
+
+    async function cargarLista() {
+        const { data } = await _supabase.from('partes').select('*').order('created_at', { ascending: false });
+        const c = document.getElementById('listaPartes');
+        c.innerHTML = '';
+        if(data) data.forEach(p => {
+            c.innerHTML += <div class="chip" onclick='cargarParte(${JSON.stringify(p)})'>${p.nombre || 'Sin nombre'} - ${p.direccion || 'Parte'}</div>;
+        });
+    }
+
+    function cargarParte(p) {
+        document.getElementById('parte_id').value = p.id;
+        ['nombre','apellido','dni','telefono','direccion','aseguradora','num_parte','hora','que_hacer','observaciones','hay_danos','donde_danos','gremios','m2_correspondan','perjudicado_tlf','perjudicado_vivienda','perjudicado_danos','firma_dni'].forEach(k => {
+            document.getElementById(k).value = p[k] || '';
+        });
+        limpiarFirma();
+        if(p.firma_img) { const img = new Image(); img.onload = () => ctx.drawImage(img,0,0); img.src = p.firma_img; hayFirma = true; }
+        try { fotos = JSON.parse(p.fotos) || []; } catch(e) { fotos = []; }
+        renderFotos();
+        document.getElementById('btnDescargarPDF').style.display = 'block';
+    }
+
+    function nuevoParte() {
+        document.getElementById('parteForm').reset();
+        document.getElementById('parte_id').value = '';
+        fotos = []; renderFotos(); limpiarFirma();
+        document.getElementById('btnDescargarPDF').style.display = 'none';
+    }
+
+    cargarLista();
+</script>
+</body>
+</html>
