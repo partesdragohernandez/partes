@@ -30,7 +30,7 @@ export default {
     try {
       if (request.method === "GET" && url.pathname === "/api/cases") {
         const r = await env.DB.prepare(
-          "SELECT id,name,surname,address,claim_no,status,visit_date,created_at,updated_at FROM cases WHERE user_id=? ORDER BY updated_at DESC"
+          "SELECT id,name,surname,address,claim_no,time,status,visit_date,created_at,updated_at FROM cases WHERE user_id=? ORDER BY updated_at DESC"
         ).bind(uid).all();
         return json(r.results || []);
       }
