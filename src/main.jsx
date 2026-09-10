@@ -147,20 +147,67 @@ $("photos").onchange=e=>{addFiles(e.target.files)};$("dropZone").ondragover=e=>{
 let ocrImageFile=null;
 function normText(s){return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9n\u00fc:#/ .-]/g," ").replace(/\s+/g," ").trim()}
 function lineValue(lines,labels){for(let i=0;i<lines.length;i++){let n=normText(lines[i]);for(const label of labels){let idx=n.indexOf(label);if(idx>=0){let raw=lines[i].slice(Math.min(lines[i].length,idx+label.length)).replace(/^\s*[:=-]?\s*/,"").trim();if(raw)return raw;let next=(lines[i+1]||"").trim();if(next)return next}}}return ""}
+function cleanOcrValue(v){return String(v||'').replace(/\s+/g,' ').replace(/^[\s:=-]+|[\s]+$/g,'').trim()}
+function valueAfterLabel(lines, labels){
+ const normalized=lines.map(x=>normText(x));
+ for(let i=0;i<lines.length;i++){
+  for(const label of labels){
+   const pos=normalized[i].indexOf(label);
+   if(pos<0) continue;
+   let raw=lines[i].slice(Math.min(lines[i].length,pos+label.length));
+   raw=cleanOcrValue(raw);
+   if(raw) return raw;
+   if(lines[i+1]) return cleanOcrValue(lines[i+1]);
+  }
+ }
+ return '';
+}
+function valueBlockAfterLabel(lines, labels){
+ const normalized=lines.map(x=>normText(x));
+ const stopLabels=['poliza','gremio','fecha cita','fecha fin prevista cita','fecha inicio','implicado','telefono 1 implicado','telefono 2 implicado','direccion','poblacion','codigo postal','provincia','reclamacion','descripcion'];
+ for(let i=0;i<lines.length;i++){
+  if(!labels.some(label=>normalized[i].indexOf(label)>=0)) continue;
+  const label=labels.find(label=>normalized[i].indexOf(label)>=0);
+  const pos=normalized[i].indexOf(label);
+  let out=cleanOcrValue(lines[i].slice(Math.min(lines[i].length,pos+label.length)));
+  for(let j=i+1;j<lines.length;j++){
+   if(stopLabels.some(x=>normalized[j].indexOf(x)>=0)) break;
+   out=cleanOcrValue((out+' '+lines[j]).trim());
+  }
+  if(out) return out;
+ }
+ return '';
+}
 function extractOcrFields(text){
- const lines=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
- const all=lines.join(" ");
+ const lines=text.split(/\r?
+/).map(x=>cleanOcrValue(x)).filter(Boolean);
+ const all=lines.join(' ');
  const out={};
- out.dni=(all.match(/\b\d{8}[A-Za-z]\b/)||[""])[0];
- out.telefono=(all.match(/\b(?:6|7|8|9)\d{8}\b/)||[""])[0];
- out.numParte=lineValue(lines,["n de parte","n de parte","no de parte","numero de parte","numero parte","parte"]);
- out.aseguradora=lineValue(lines,["compania aseguradora","compania","aseguradora","seguro"]);
- out.direccion=lineValue(lines,["direccion","domicilio","direccion del siniestro"]);
- out.nombre=lineValue(lines,["nombre"]);
- out.apellido=lineValue(lines,["apellido","apellidos"]);
- out.descripcionQueHacer=lineValue(lines,["descripcion","que hacer","descripcion que hacer","trabajos"]);
- const tm=all.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/); if(tm) out.hora=tm[1].padStart(2,"0")+":"+tm[2];
- const dm=all.match(/\b(0?[1-9]|[12]\d|3[01])[\/-](0?[1-9]|1[0-2])[\/-](20\d{2})\b/); if(dm) out.fechaVisita=dm[3]+"-"+dm[2].padStart(2,"0")+"-"+dm[1].padStart(2,"0");
+ out.dni=(all.match(/\b\d{8}[A-Za-z]\b/)||[''])[0];
+ const phoneMatches=all.match(/\b(?:6|7|8|9)\d{8}\b/g)||[];
+ out.telefono=phoneMatches[0]||'';
+ out.numParte=valueAfterLabel(lines,['poliza','n de parte','numero de parte','numero parte','parte']);
+ out.aseguradora=valueAfterLabel(lines,['compania aseguradora','compania','aseguradora','seguro']);
+ out.nombre=valueAfterLabel(lines,['nombre']);
+ const implicado=valueAfterLabel(lines,['implicado','asegurado']);
+ if(implicado){
+  const parts=implicado.split(/\s+/).filter(Boolean);
+  if(!out.nombre || normText(out.nombre)===normText(implicado)){out.nombre=parts.shift()||implicado;out.apellido=parts.join(' ')}
+ }
+ if(!out.apellido) out.apellido=valueAfterLabel(lines,['apellido','apellidos']);
+ out.telefono=valueAfterLabel(lines,['telefono 1 implicado','telefono implicado','telefono'])||out.telefono;
+ out.direccion=valueBlockAfterLabel(lines,['direccion','domicilio']);
+ const poblacion=valueAfterLabel(lines,['poblacion','localidad','municipio']);
+ const postal=valueAfterLabel(lines,['codigo postal','c.p.']);
+ if(poblacion && normText(out.direccion).indexOf(normText(poblacion))<0) out.direccion=cleanOcrValue((out.direccion+' '+poblacion).trim());
+ if(postal && normText(out.direccion).indexOf(normText(postal))<0) out.direccion=cleanOcrValue((out.direccion+' '+postal).trim());
+ out.descripcionQueHacer=valueBlockAfterLabel(lines,['descripcion','que hacer','trabajos']);
+ out.gremiosSolicitar=valueAfterLabel(lines,['gremio','gremios']);
+ const cita=valueAfterLabel(lines,['fecha cita','cita']);
+ const dm=(cita+' '+all).match(/\b(0?[1-9]|[12]\d|3[01])[\/-](0?[1-9]|1[0-2])[\/-](20\d{2})\b/);
+ if(dm) out.fechaVisita=dm[3]+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0');
+ const tm=(cita+' '+all).match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
+ if(tm) out.hora=tm[1].padStart(2,'0')+':'+tm[2];
  return out;
 }
 function applyOcrFields(data){
