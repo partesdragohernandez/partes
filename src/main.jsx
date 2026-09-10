@@ -51,6 +51,7 @@ document.body.innerHTML = `
 <label class="wide">Direccion<input id="direccion" placeholder="Direcci&oacute;n del siniestro"/></label>
 <label>Compa&ntilde;&iacute;a Aseguradora<input id="aseguradora" placeholder="Compa&ntilde;&iacute;a"/></label>
 <label>N&ordm; de Parte<input id="numParte" placeholder="N&ordm; de parte"/></label>
+<label>Empresa<select id="empresa"><option value="">Seleccionar...</option><option>Hernandez</option><option>Drago</option></select></label>
 <label>Fecha de visita<input id="fechaVisita" type="date"/></label>
 <label>Hora<input id="hora" type="time"/></label>
 <label class="wide">Descripci&oacute;n / Qu&eacute; Hacer<textarea id="descripcionQueHacer" placeholder="Describe el siniestro y qu&eacute; hay que hacer..." rows="4"></textarea></label>
@@ -68,7 +69,7 @@ document.body.innerHTML = `
 <label class="wide">Hay Da&ntilde;os?<select id="hayDanios"><option value="">Seleccionar...</option><option>Si</option><option>No</option></select></label>
 <label class="wide">D&oacute;nde est&aacute;n los da&ntilde;os?<input id="dondeDanios" placeholder="Indica la zona, estancia o ubicaci&oacute;n"/></label>
 <label>Gremios a Solicitar<input id="gremiosSolicitar" placeholder="Alba&ntilde;iler&iacute;a, pintura, fontaner&iacute;a..."/></label>
-<label>m2 correspondientes<input id="metros" min="0" placeholder="0" step="0.01" type="number"/></label>
+<label>m2 correspondientes<input id="metros" min="0" placeholder="0" step="0.01" type="numbe<label>Empresa<select id="empresa"><option value="">Seleccionar...</option><option>Hernandez</option><option>Drago</option></select></label>r"/></label>
 </div>
 </section>
 <section class="card">
