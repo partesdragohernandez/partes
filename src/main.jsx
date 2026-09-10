@@ -4,13 +4,15 @@ const jszipScript = document.createElement('script');
 jszipScript.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
 jszipScript.async = true;
 document.head.appendChild(jszipScript);
-const uiStyle=document.createElement("style");uiStyle.textContent=`.history-panel{display:grid;gap:8px;margin:8px 0}.history-panel label{font-size:12px;font-weight:700}.history-btn{width:100%;margin:8px 0}.readonly-note{margin-top:6px;padding:8px 10px;border-radius:8px;background:#f3f4f6;color:#374151;font-size:12px}.hidden{display:none!important}.photo img{cursor:zoom-in}.worker-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0}.worker-tabs .tab{border:1px solid #d1d5db;background:#fff;border-radius:8px;padding:9px 6px;font-size:11px;font-weight:800;cursor:pointer}.worker-tabs .tab.active{background:#111827;color:#fff;border-color:#111827}.worker-tabs .tab span{font-weight:700;margin-left:3px}`;document.head.appendChild(uiStyle);
+const ocrScript=document.createElement('script');ocrScript.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';ocrScript.async=true;const ocrReady=new Promise((resolve,reject)=>{ocrScript.onload=resolve;ocrScript.onerror=reject});document.head.appendChild(ocrScript);
+const uiStyle=document.createElement("style");uiStyle.textContent=`.history-panel{display:grid;gap:8px;margin:8px 0}.history-panel label{font-size:12px;font-weight:700}.history-btn{width:100%;margin:8px 0}.readonly-note{margin-top:6px;padding:8px 10px;border-radius:8px;background:#f3f4f6;color:#374151;font-size:12px}.hidden{display:none!important}.photo img{cursor:zoom-in}.worker-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0}.worker-tabs .tab{border:1px solid #d1d5db;background:#fff;border-radius:8px;padding:9px 6px;font-size:11px;font-weight:800;cursor:pointer}.worker-tabs .tab.active{background:#111827;color:#fff;border-color:#111827}.worker-tabs .tab span{font-weight:700;margin-left:3px}.ocr-btn{margin-bottom:8px}.ocr-box{display:grid;gap:8px}.ocr-status{font-size:12px;color:#4b5563}.ocr-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:9999}.ocr-card{background:#fff;border-radius:14px;padding:18px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.25)}.ocr-card h2{margin:0 0 8px}.ocr-preview{max-height:180px;max-width:100%;object-fit:contain;border:1px solid #ddd;border-radius:8px}.ocr-actions{display:flex;gap:8px;justify-content:flex-end}`;document.head.appendChild(uiStyle);
 
 document.body.innerHTML = `
 <header class="topbar">
 <div class="brand"><div class="logo">GS</div><div><strong>Gesti&oacute;n de Siniestros</strong><span>Partes, fotos y firmas</span></div></div>
 <div class="top-actions">
 <button class="btn primary" id="newBtn">+ Nuevo siniestro</button>
+<button class="btn secondary" id="ocrBtn">Importar parte desde foto</button>
 <button class="btn ghost" id="roleBtn">Modo trabajador</button>
 <button class="btn ghost" id="exportBackupBtn">Exportar copia</button>
 <label class="btn ghost file-btn">Importar copia<input accept=".json" id="importBackup" type="file"/></label>
@@ -87,6 +89,7 @@ document.body.innerHTML = `
 </div>
 </section></main>
 <div class="toast" id="toast"></div>
+<div id="ocrModal" class="ocr-modal hidden"><div class="ocr-card"><h2>Importar parte desde foto</h2><p>Sube una captura o foto del parte. Extraeremos los datos y podr&aacute;s revisarlos antes de guardar.</p><div class="ocr-box"><input id="ocrFile" type="file" accept="image/*"/><img id="ocrPreview" class="ocr-preview hidden" alt="Vista previa"/><div id="ocrStatus" class="ocr-status">Esperando una imagen...</div></div><div class="ocr-actions"><button class="btn ghost" id="ocrCancel" type="button">Cancelar</button><button class="btn primary" id="ocrRun" type="button">Extraer datos</button></div></div></div>
 
 
 `;
@@ -140,6 +143,42 @@ function isReadOnly(){return appMode==="worker" && window.currentCase && window.
 function setReadOnly(){let ro=isReadOnly();$("readonlyNote").classList.toggle("hidden",!ro);$("saveBtn").classList.toggle("hidden",ro);$("finishBtn").classList.toggle("hidden",ro);$("deleteBtn").classList.toggle("hidden",ro);$("downloadPhotosBtn").classList.remove("hidden");$("printBtn").classList.remove("hidden");document.querySelectorAll("#caseForm input,#caseForm textarea,#caseForm select").forEach(el=>{el.disabled=ro});$("dropZone").classList.toggle("hidden",ro);$("clearSignature").classList.toggle("hidden",ro);$("signature").style.pointerEvents=ro?"none":"auto"}
 async function addFiles(files){const list=[...(files||[])];if(!list.length)return;let n=0;for(const f of list){if(!f.type.startsWith("image/"))continue;try{let data=await new Promise((res,rej)=>{let r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("No se pudo leer la foto"));r.readAsDataURL(f)});photos.push({name:f.name,type:f.type,data,addedAt:Date.now()});n++}catch(e){console.error(e)}}renderPhotos();$("photos").value="";if(n)toast(`${n} fotograf\u00eda${n===1?"":"s"} a\u00f1adida${n===1?"":"s"}`);else toast("No se pudo a\u00f1adir la fotograf\u00eda")}
 $("photos").onchange=e=>{addFiles(e.target.files)};$("dropZone").ondragover=e=>{e.preventDefault()};$("dropZone").ondrop=e=>{e.preventDefault();addFiles(e.dataTransfer.files)};
+
+let ocrImageFile=null;
+function normText(s){return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9n\u00fc:#/ .-]/g," ").replace(/\s+/g," ").trim()}
+function lineValue(lines,labels){for(let i=0;i<lines.length;i++){let n=normText(lines[i]);for(const label of labels){let idx=n.indexOf(label);if(idx>=0){let raw=lines[i].slice(Math.min(lines[i].length,idx+label.length)).replace(/^\s*[:=-]?\s*/,"").trim();if(raw)return raw;let next=(lines[i+1]||"").trim();if(next)return next}}}return ""}
+function extractOcrFields(text){
+ const lines=text.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+ const all=lines.join(" ");
+ const out={};
+ out.dni=(all.match(/\b\d{8}[A-Za-z]\b/)||[""])[0];
+ out.telefono=(all.match(/\b(?:6|7|8|9)\d{8}\b/)||[""])[0];
+ out.numParte=lineValue(lines,["n de parte","n de parte","no de parte","numero de parte","numero parte","parte"]);
+ out.aseguradora=lineValue(lines,["compania aseguradora","compania","aseguradora","seguro"]);
+ out.direccion=lineValue(lines,["direccion","domicilio","direccion del siniestro"]);
+ out.nombre=lineValue(lines,["nombre"]);
+ out.apellido=lineValue(lines,["apellido","apellidos"]);
+ out.descripcionQueHacer=lineValue(lines,["descripcion","que hacer","descripcion que hacer","trabajos"]);
+ const tm=all.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/); if(tm) out.hora=tm[1].padStart(2,"0")+":"+tm[2];
+ const dm=all.match(/\b(0?[1-9]|[12]\d|3[01])[\/-](0?[1-9]|1[0-2])[\/-](20\d{2})\b/); if(dm) out.fechaVisita=dm[3]+"-"+dm[2].padStart(2,"0")+"-"+dm[1].padStart(2,"0");
+ return out;
+}
+function applyOcrFields(data){
+ const map={nombre:"nombre",apellido:"apellido",dni:"dni",telefono:"telefono",direccion:"direccion",aseguradora:"aseguradora",numParte:"numParte",hora:"hora",descripcionQueHacer:"descripcionQueHacer"};
+ let n=0;for(const [a,b] of Object.entries(map)){if(data[a]&&$(b)&&!$(b).disabled){$(b).value=data[a];n++}}
+ if(data.fechaVisita&&$("fechaVisita")) $("fechaVisita").value=data.fechaVisita;
+ return n;
+}
+async function runOcr(){
+ const f=$("ocrFile").files[0]; if(!f)return toast("Selecciona una imagen");
+ if(!window.Tesseract){toast("Cargando lector de texto...");try{await ocrReady}catch(e){return toast("No se pudo cargar el lector de texto")}}
+ if(!window.Tesseract)return toast("No se pudo cargar el lector de texto");
+ $("ocrStatus").textContent="Leyendo el parte...";
+ try{const result=await Tesseract.recognize(f,"spa",{logger:m=>{if(m.status&&typeof m.progress==="number")$("ocrStatus").textContent=`${m.status} ${Math.round(m.progress*100)}%`;}});const data=extractOcrFields(result.data.text||"");const n=applyOcrFields(data);$("ocrStatus").textContent=`Listo. Se han rellenado ${n} campos. Revisa los datos antes de guardar.`;$("ocrModal").classList.add("hidden");renderList();toast(`Parte leido: ${n} campos rellenados`);}catch(e){console.error(e);$("ocrStatus").textContent="No se pudo leer la imagen. Prueba con una captura mas clara.";}}
+$("ocrBtn").onclick=async()=>{if(appMode!=="admin"){toast("Los partes los prepara administracion");return}let c=blankCase();await putCase(c);showEditor(c);$("ocrModal").classList.remove("hidden");$("ocrFile").value="";$("ocrPreview").classList.add("hidden");$("ocrStatus").textContent="Esperando una imagen...";};
+$("ocrCancel").onclick=()=>$("ocrModal").classList.add("hidden");
+$("ocrFile").onchange=e=>{let f=e.target.files[0];if(!f)return;ocrImageFile=f;let r=new FileReader();r.onload=()=>{$("ocrPreview").src=r.result;$("ocrPreview").classList.remove("hidden")};r.readAsDataURL(f)};
+$("ocrRun").onclick=runOcr;
 const canvas=$("signature"),ctx=canvas.getContext("2d");let drawing=false;
 function resizeCanvas(){let r=devicePixelRatio||1,rect=canvas.getBoundingClientRect(),old=signatureData;canvas.width=rect.width*r;canvas.height=260*r;ctx.scale(r,r);ctx.lineWidth=2;ctx.lineCap="round";ctx.strokeStyle="#111827";if(old){let img=new Image();img.onload=()=>ctx.drawImage(img,0,0,rect.width,260);img.src=old}}
 function point(e){let r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}function start(e){e.preventDefault();drawing=true;let p=point(e);ctx.beginPath();ctx.moveTo(p.x,p.y)}function move(e){if(!drawing)return;e.preventDefault();let p=point(e);ctx.lineTo(p.x,p.y);ctx.stroke()}function end(){if(drawing){drawing=false;signatureData=canvas.toDataURL("image/png");$("signatureState").textContent="Firma capturada"}}
@@ -147,8 +186,9 @@ canvas.onpointerdown=start;canvas.onpointermove=move;window.onpointerup=end;
 function renderSignature(){resizeCanvas();$("signatureState").textContent=signatureData?"Firma capturada":"Sin firma"}
 $("clearSignature").onclick=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);signatureData="";$("signatureState").textContent="Sin firma"}
 window.onresize=()=>{if(!$("editor").classList.contains("hidden"))renderSignature()};
+$("ocrBtn").classList.add("hidden");
 $("newBtn").onclick=$("emptyNew").onclick=async()=>{if(appMode!=="admin"){toast("Los partes los prepara administracion");return}let c=blankCase();await putCase(c);showEditor(c);toast("Nuevo siniestro creado")};
-$("roleBtn").onclick=()=>{appMode=appMode==="worker"?"admin":"worker";listMode="today";dayTab="pending";if(window.currentCase){fill(window.currentCase);}$("roleBtn").textContent=appMode==="worker"?"Modo trabajador":"Modo administracion";$("newBtn").classList.toggle("hidden",appMode!=="admin");$("historyBtn").classList.toggle("hidden",appMode==="admin");$("historyPanel").classList.add("hidden");renderList();toast(appMode==="worker"?"Modo trabajador":"Modo administracion")};
+$("roleBtn").onclick=()=>{appMode=appMode==="worker"?"admin":"worker";listMode="today";dayTab="pending";if(window.currentCase){fill(window.currentCase);}$("roleBtn").textContent=appMode==="worker"?"Modo trabajador":"Modo administracion";$("newBtn").classList.toggle("hidden",appMode!=="admin");$("ocrBtn").classList.toggle("hidden",appMode!=="admin");$("historyBtn").classList.toggle("hidden",appMode==="admin");$("historyPanel").classList.add("hidden");renderList();toast(appMode==="worker"?"Modo trabajador":"Modo administracion")};
 $("historyBtn").onclick=()=>{$("historyPanel").classList.toggle("hidden");if(!$("historyPanel").classList.contains("hidden")){listMode="history";renderList()}};
 $("historySearchBtn").onclick=()=>{listMode="history";renderList()};
 $("todayBtn").onclick=()=>{listMode="today";dayTab="pending";$("historyPanel").classList.add("hidden");renderList()};
