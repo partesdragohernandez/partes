@@ -179,8 +179,7 @@ function valueBlockAfterLabel(lines, labels){
  return '';
 }
 function extractOcrFields(text){
- const lines=text.split(/\r?
-/).map(x=>cleanOcrValue(x)).filter(Boolean);
+const lines=text.split(/\r?\n/);
  const all=lines.join(' ');
  const out={};
  out.dni=(all.match(/\b\d{8}[A-Za-z]\b/)||[''])[0];
