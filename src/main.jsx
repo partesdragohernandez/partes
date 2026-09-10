@@ -215,12 +215,43 @@ function applyOcrFields(data){
  if(data.fechaVisita&&$("fechaVisita")) $("fechaVisita").value=data.fechaVisita;
  return n;
 }
+function preprocessOcrImage(file){
+ return new Promise((resolve,reject)=>{
+  const img=new Image();
+  const reader=new FileReader();
+  reader.onload=()=>{img.onload=()=>{
+   const maxW=2600,maxH=3600,scale=Math.min(3,maxW/img.naturalWidth,maxH/img.naturalHeight);
+   const w=Math.max(1,Math.round(img.naturalWidth*scale)),h=Math.max(1,Math.round(img.naturalHeight*scale));
+   const c=document.createElement("canvas");c.width=w;c.height=h;
+   const x=c.getContext("2d",{willReadFrequently:true});
+   x.drawImage(img,0,0,w,h);
+   const d=x.getImageData(0,0,w,h),a=d.data;
+   for(let i=0;i<a.length;i+=4){
+    const y=0.299*a[i]+0.587*a[i+1]+0.114*a[i+2];
+    const v=Math.max(0,Math.min(255,(y-128)*1.45+128));
+    a[i]=v;a[i+1]=v;a[i+2]=v;
+   }
+   x.putImageData(d,0,0);
+   resolve(c);
+  };img.onerror=()=>reject(new Error("No se pudo preparar la imagen"));img.src=reader.result};
+  reader.onerror=()=>reject(new Error("No se pudo leer la imagen"));reader.readAsDataURL(file);
+ });
+}
 async function runOcr(){
  const f=$("ocrFile").files[0]; if(!f)return toast("Selecciona una imagen");
  if(!window.Tesseract){toast("Cargando lector de texto...");try{await ocrReady}catch(e){return toast("No se pudo cargar el lector de texto")}}
  if(!window.Tesseract)return toast("No se pudo cargar el lector de texto");
- $("ocrStatus").textContent="Leyendo el parte...";
- try{const result=await Tesseract.recognize(f,"spa",{logger:m=>{if(m.status&&typeof m.progress==="number")$("ocrStatus").textContent=`${m.status} ${Math.round(m.progress*100)}%`;}});const data=extractOcrFields(result.data.text||"");const n=applyOcrFields(data);$("ocrStatus").textContent=`Listo. Se han rellenado ${n} campos. Revisa los datos antes de guardar.`;$("ocrModal").classList.add("hidden");renderList();toast(`Parte leido: ${n} campos rellenados`);}catch(e){console.error(e);$("ocrStatus").textContent="No se pudo leer la imagen. Prueba con una captura mas clara.";}}
+ $("ocrStatus").textContent="Preparando imagen...";
+ try{
+  const processed=await preprocessOcrImage(f);
+  $("ocrStatus").textContent="Leyendo el parte...";
+  const result=await Tesseract.recognize(processed,"spa",{logger:m=>{if(m.status&&typeof m.progress==="number")$("ocrStatus").textContent=`${m.status} ${Math.round(m.progress*100)}%`;}});
+  const data=extractOcrFields(result.data.text||"");
+  const n=applyOcrFields(data);
+  $("ocrStatus").textContent=`Listo. Se han rellenado ${n} campos. Revisa los datos antes de guardar.`;
+  $("ocrModal").classList.add("hidden");renderList();toast(`Parte leido: ${n} campos rellenados`);
+ }catch(e){console.error(e);$("ocrStatus").textContent="No se pudo leer la imagen. Prueba con una captura mas clara.";}
+}
 $("ocrBtn").onclick=async()=>{if(appMode!=="admin"){toast("Los partes los prepara administracion");return}let c=blankCase();await putCase(c);showEditor(c);$("ocrModal").classList.remove("hidden");$("ocrFile").value="";$("ocrPreview").classList.add("hidden");$("ocrStatus").textContent="Esperando una imagen...";};
 $("ocrCancel").onclick=()=>$("ocrModal").classList.add("hidden");
 $("ocrFile").onchange=e=>{let f=e.target.files[0];if(!f)return;ocrImageFile=f;let r=new FileReader();r.onload=()=>{$("ocrPreview").src=r.result;$("ocrPreview").classList.remove("hidden")};r.readAsDataURL(f)};
