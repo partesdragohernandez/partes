@@ -30,7 +30,7 @@ export default {
     try {
       if (request.method === "GET" && url.pathname === "/api/cases") {
         const r = await env.DB.prepare(
-          "SELECT id,name,surname,address,claim_no,time,status,visit_date,created_at,updated_at FROM cases WHERE user_id=? ORDER BY updated_at DESC"
+          "SELECT id,name,surname,address,claim_no,time,status,visit_date,company,created_at,updated_at FROM cases WHERE user_id=? ORDER BY updated_at DESC"
         ).bind(uid).all();
         return json(r.results || []);
       }
@@ -75,7 +75,7 @@ export default {
         const d = await request.json();
         const id = d.id || crypto.randomUUID();
         const now = new Date().toISOString();
-        const keys = ["name","surname","dni","phone","address","insurer","claimNo","time","description","observations","hasDamage","damageWhere","trades","sqm","injuredPhone","housingNo","injuredDamage","signerDni","status","visitDate"];
+        const keys = ["name","surname","dni","phone","address","company","insurer","claimNo","time","description","observations","hasDamage","damageWhere","trades","sqm","injuredPhone","housingNo","injuredDamage","signerDni","status","visitDate"];
         const cols = keys.map(k => k.replace(/[A-Z]/g, m => "_" + m.toLowerCase()));
         const vals = keys.map(k => d[k] ?? "");
         const existing = await env.DB.prepare("SELECT id,signature_key FROM cases WHERE id=? AND user_id=?").bind(id, uid).first();
