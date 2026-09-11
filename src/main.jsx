@@ -51,7 +51,7 @@ document.body.innerHTML = `
 <label class="wide">Direccion<input id="direccion" placeholder="Direcci&oacute;n del siniestro"/></label>
 <label>Compa&ntilde;&iacute;a Aseguradora<input id="aseguradora" placeholder="Compa&ntilde;&iacute;a"/></label>
 <label>N&ordm; de Parte<input id="numParte" placeholder="N&ordm; de parte"/></label>
-<label>Empresa<select id="empresa"><option value="">Seleccionar...</option><option>Hernandez</option><option>Drago</option></select></label>
+<label>Empresa<input id="empresa" placeholder="Drago, Hernández, Allianz..." required/></label>
 <label>Fecha de visita<input id="fechaVisita" type="date"/></label>
 <label>Hora<input id="hora" type="time"/></label>
 <label class="wide">Descripci&oacute;n / Qu&eacute; Hacer<textarea id="descripcionQueHacer" placeholder="Describe el siniestro y qu&eacute; hay que hacer..." rows="4"></textarea></label>
@@ -114,10 +114,12 @@ function collect(){let c={...(window.currentCase||blankCase())};fields.forEach(k
 function fill(c){window.currentCase=c;fields.forEach(k=>$(k).value=c[k]||"");photos=c.photos||[];signatureData=c.signature||"";$("fechaVisita").value=c.visitDate||c.fecha||nowDate();$("statusLabel").textContent=c.status;$("editorTitle").textContent=c.direccion||"Nuevo siniestro";$("editorMeta").textContent=`Creado ${new Date(c.createdAt).toLocaleString("es-ES")} - Ultima modificacion ${new Date(c.updatedAt).toLocaleString("es-ES")}`;renderPhotos();renderSignature();setReadOnly();renderList()}
 function showEditor(c){currentId=c.id;$("empty").classList.add("hidden");$("editor").classList.remove("hidden");fill(c)}
 function visitDay(c){return c.visitDate||c.fecha||""}
+function formatVisitDay(value){const parts=String(value||"").split("-");return parts.length===3?`${parts[2]}/${parts[1]}/${parts[0]}`:value||"Sin fecha"}
 function stateLabel(c){return c.status==="COMPLETADO"?"COMPLETADO":"PENDIENTE"}
-function cardMarkup(c){const state=stateLabel(c).toLowerCase();return `<button class="record ${state} ${c.id===currentId?"active":""}" data-id="${c.id}" type="button"><div class="record-top"><span class="record-date">${esc(visitDay(c)||"Sin fecha")}</span><span class="record-time">${esc(c.hora||"--:--")}</span></div><div class="record-address">${esc(c.direccion||"Sin dirección")}</div><div class="record-bottom"><span class="record-company">${esc(c.empresa||c.company||"Sin empresa")}</span><span class="record-status">${stateLabel(c)}</span></div></button>`}
+function cardMarkup(c){const state=stateLabel(c).toLowerCase(),company=String(c.empresa||c.company||"").trim();return `<button class="record ${state} ${c.id===currentId?"active":""}" data-id="${c.id}" type="button"><div class="record-top"><span class="record-date">${esc(formatVisitDay(visitDay(c)))}</span><span class="record-time">${esc(c.hora||"--:--")}</span></div><div class="record-address">${esc(c.direccion||"Sin dirección")}</div><div class="record-bottom">${company?`<span class="record-company">${esc(company)}</span>`:""}<span class="record-status">${stateLabel(c)}</span></div></button>`}
 function recordsMarkup(items){return items.map(cardMarkup).join("")}
 function bindRecordClicks(){document.querySelectorAll(".record").forEach(e=>e.onclick=()=>getCase(e.dataset.id).then(showEditor))}
+function sortByVisitTime(items){return [...items].sort((a,b)=>String(a.hora||"99:99").localeCompare(String(b.hora||"99:99")))}
 function renderList(){allCases().then(cs=>{
 let f=[];
 if(appMode==="admin"){
@@ -138,14 +140,15 @@ if(q && appMode==="admin")f=f.filter(c=>(c.direccion+" "+c.nombre+" "+c.apellido
 $("count").textContent=f.length;
 $("listTitle").textContent=appMode==="admin"?"TODOS LOS PARTES":(listMode==="today"?"PARTES DE HOY":"PARTES ANTERIORES");
 if(appMode==="worker"&&listMode==="today"){
-  const today=cs.filter(c=>visitDay(c)===nowDate()), pending=today.filter(c=>c.status!=="COMPLETADO"), completed=today.filter(c=>c.status==="COMPLETADO");
+  const today=cs.filter(c=>visitDay(c)===nowDate()), pending=sortByVisitTime(today.filter(c=>c.status!=="COMPLETADO")), completed=sortByVisitTime(today.filter(c=>c.status==="COMPLETADO"));
   $("recordsList").innerHTML=`<section class="record-group pending-group"><div class="record-group-title">PENDIENTES <span>${pending.length}</span></div>${pending.length?recordsMarkup(pending):'<p class="group-empty">No tienes partes pendientes para hoy.</p>'}</section><section class="record-group completed-group"><div class="record-group-title">COMPLETADOS <span>${completed.length}</span></div>${completed.length?recordsMarkup(completed):'<p class="group-empty">Aún no hay partes completados hoy.</p>'}</section>`;
 }else $("recordsList").innerHTML=recordsMarkup(f);
 bindRecordClicks();
 $("workerTabs").classList.toggle("hidden",appMode!=="worker"||listMode!=="today");
 })}
 function toast(t){$("toast").textContent=t;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2200)}
-async function save(show=true){let c=collect();await putCase(c);window.currentCase=c;currentId=c.id;fill(c);if(show)toast("Siniestro guardado")}
+function validateCompany(){if($("empresa").value.trim())return true;$("empresa").focus();toast("Escribe el nombre de la empresa");return false}
+async function save(show=true){if(!validateCompany())return false;let c=collect();await putCase(c);window.currentCase=c;currentId=c.id;fill(c);if(show)toast("Siniestro guardado");return true}
 function renderPhotos(){$("photoCount").textContent=`${photos.length} fotograf\u00eda${photos.length===1?"":"s"}`;$("photoGrid").innerHTML=photos.map((p,i)=>`<div class="photo"><img src="${p.data}" alt="Foto ${i+1}" data-photo-view="${i}">${isReadOnly()?"" : `<button type="button" data-photo="${i}">x</button>`}</div>`).join("");document.querySelectorAll("[data-photo]").forEach(b=>b.onclick=()=>{photos.splice(+b.dataset.photo,1);renderPhotos()});document.querySelectorAll("[data-photo-view]").forEach(img=>img.onclick=()=>{let i=+img.dataset.photoView;let w=window.open("","_blank");w.document.write(`<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;height:100vh"><img src="${photos[i].data}" style="max-width:98%;max-height:98%;object-fit:contain"></body></html>`);w.document.close()})}
 function isReadOnly(){return appMode==="worker" && window.currentCase && visitDay(window.currentCase)!==nowDate()}
 function setReadOnly(){let ro=isReadOnly();$("readonlyNote").classList.toggle("hidden",!ro);$("saveBtn").classList.toggle("hidden",ro);$("finishBtn").classList.toggle("hidden",ro);$("deleteBtn").classList.toggle("hidden",ro);$("downloadPhotosBtn").classList.remove("hidden");$("printBtn").classList.remove("hidden");document.querySelectorAll("#caseForm input,#caseForm textarea,#caseForm select").forEach(el=>{el.disabled=ro});$("dropZone").classList.toggle("hidden",ro);$("clearSignature").classList.toggle("hidden",ro);$("signature").style.pointerEvents=ro?"none":"auto"}
@@ -249,7 +252,7 @@ $("todayBtn").onclick=()=>{listMode="today";dayTab="pending";$("historyPanel").c
 $("historyDate").onchange=()=>{listMode="history";renderList()};
 $("historyText").oninput=()=>{listMode="history";renderList()};
 $("saveBtn").onclick=()=>save();
-$("finishBtn").onclick=async()=>{let c=collect();c.status="COMPLETADO";await putCase(c);showEditor(c);toast("Parte marcado como completado")};
+$("finishBtn").onclick=async()=>{if(!validateCompany())return;let c=collect();c.status="COMPLETADO";await putCase(c);showEditor(c);toast("Parte marcado como completado")};
 $("deleteBtn").onclick=async()=>{if(currentId&&confirm("Eliminar este siniestro y sus fotograf\u00edas?")){await delCase(currentId);currentId=null;$("editor").classList.add("hidden");$("empty").classList.remove("hidden");renderList();toast("Siniestro eliminado")}};
 $("search").oninput=renderList;
 function safe(s=""){return s.replace(/[^\w\daeiouunAEIOUUN-]+/g,"-").replace(/^-|-$/g,"")||"sin-datos"}
