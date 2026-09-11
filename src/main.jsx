@@ -100,6 +100,19 @@ document.body.innerHTML = `
 
 const DB_NAME="gestion_siniestros_db",STORE="cases";let db,currentId=null,photos=[],signatureData="";let appMode="worker",listMode="today",dayTab="pending";
 const $=id=>document.getElementById(id);
+const mobileMenuBtn=$("mobileMenuBtn"),topActions=document.querySelector(".top-actions");
+if(mobileMenuBtn&&topActions){
+  const mobileViewport=matchMedia('(max-width:850px)');
+  topActions.id='topActions';mobileMenuBtn.type='button';
+  mobileMenuBtn.setAttribute('aria-controls','topActions');
+  const setMenuOpen=open=>{topActions.classList.toggle('mobile-open',open);mobileMenuBtn.setAttribute('aria-expanded',String(open))};
+  setMenuOpen(false);
+  mobileMenuBtn.onclick=()=>setMenuOpen(!topActions.classList.contains('mobile-open'));
+  document.addEventListener('click',e=>{if(!topActions.contains(e.target)&&!mobileMenuBtn.contains(e.target))setMenuOpen(false)});
+  topActions.addEventListener('click',e=>{if(e.target.closest('button,label,input'))setMenuOpen(false)});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&topActions.classList.contains('mobile-open')){setMenuOpen(false);mobileMenuBtn.focus()}});
+  mobileViewport.addEventListener('change',()=>setMenuOpen(false));
+}
 function uid(){return crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(16).slice(2)}
 function nowDate(){return new Date().toISOString().slice(0,10)} function nowTime(){return new Date().toTimeString().slice(0,5)}
 function esc(s=""){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
