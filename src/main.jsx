@@ -10,7 +10,7 @@ const uiStyle=document.createElement("style");uiStyle.textContent=`.history-pane
 document.body.innerHTML = `
 <header class="topbar">
 <div class="brand"><div class="logo">GS</div><div><strong>Gesti&oacute;n de Siniestros</strong><span>Partes, fotos y firmas</span></div></div>
-<div class="top-actions">
+<button class="btn ghost mobile-menu-btn" id="mobileMenuBtn">☰ Menú</button><div class="top-actions">
 <button class="btn primary" id="newBtn">+ Nuevo siniestro</button>
 <button class="btn secondary" id="ocrBtn">Importar parte desde foto</button>
 <button class="btn ghost" id="roleBtn">Modo trabajador</button>
