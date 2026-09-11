@@ -22,9 +22,9 @@ document.body.innerHTML = `
 <aside class="sidebar">
 <div class="side-title"><span id="listTitle">PARTES DE HOY</span><span id="count">0</span></div>
 <div class="today-search"><input id="search" placeholder="Buscar en los partes de hoy..."/></div>
-<div id="workerTabs" class="worker-tabs">
-<button class="tab active" id="pendingTab" type="button">PENDIENTES <span id="pendingCount">0</span></button>
-<button class="tab" id="completedTab" type="button">COMPLETADOS <span id="completedCount">0</span></button>
+<div id="workerTabs" class="worker-tabs" aria-label="Resumen de partes de hoy">
+<div class="worker-summary pending-summary">PENDIENTES <span id="pendingCount">0</span></div>
+<div class="worker-summary completed-summary">COMPLETADOS <span id="completedCount">0</span></div>
 </div>
 <button class="btn ghost history-btn" id="historyBtn" type="button">Buscar parte anterior</button>
 <div id="historyPanel" class="history-panel hidden">
@@ -69,7 +69,7 @@ document.body.innerHTML = `
 <label class="wide">Hay Da&ntilde;os?<select id="hayDanios"><option value="">Seleccionar...</option><option>Si</option><option>No</option></select></label>
 <label class="wide">D&oacute;nde est&aacute;n los da&ntilde;os?<input id="dondeDanios" placeholder="Indica la zona, estancia o ubicaci&oacute;n"/></label>
 <label>Gremios a Solicitar<input id="gremiosSolicitar" placeholder="Alba&ntilde;iler&iacute;a, pintura, fontaner&iacute;a..."/></label>
-<label>m2 correspondientes<input id="metros" min="0" placeholder="0" step="0.01" type="numbe<label>Empresa<select id="empresa"><option value="">Seleccionar...</option><option>Hernandez</option><option>Drago</option></select></label>r"/></label>
+<label>m2 correspondientes<input id="metros" min="0" placeholder="0" step="0.01" type="number"/></label>
 </div>
 </section>
 <section class="card">
@@ -113,6 +113,11 @@ const fields=["fechaVisita","empresa","hora","nombre","apellido","dni","telefono
 function collect(){let c={...(window.currentCase||blankCase())};fields.forEach(k=>c[k]=$(k).value);c.visitDate=$("fechaVisita").value||c.visitDate||c.fecha||nowDate();c.photos=photos;c.signature=signatureData;c.updatedAt=Date.now();return c}
 function fill(c){window.currentCase=c;fields.forEach(k=>$(k).value=c[k]||"");photos=c.photos||[];signatureData=c.signature||"";$("fechaVisita").value=c.visitDate||c.fecha||nowDate();$("statusLabel").textContent=c.status;$("editorTitle").textContent=c.direccion||"Nuevo siniestro";$("editorMeta").textContent=`Creado ${new Date(c.createdAt).toLocaleString("es-ES")} - Ultima modificacion ${new Date(c.updatedAt).toLocaleString("es-ES")}`;renderPhotos();renderSignature();setReadOnly();renderList()}
 function showEditor(c){currentId=c.id;$("empty").classList.add("hidden");$("editor").classList.remove("hidden");fill(c)}
+function visitDay(c){return c.visitDate||c.fecha||""}
+function stateLabel(c){return c.status==="COMPLETADO"?"COMPLETADO":"PENDIENTE"}
+function cardMarkup(c){const state=stateLabel(c).toLowerCase();return `<button class="record ${state} ${c.id===currentId?"active":""}" data-id="${c.id}" type="button"><div class="record-top"><span class="record-date">${esc(visitDay(c)||"Sin fecha")}</span><span class="record-time">${esc(c.hora||"--:--")}</span></div><div class="record-address">${esc(c.direccion||"Sin dirección")}</div><div class="record-bottom"><span class="record-company">${esc(c.empresa||c.company||"Sin empresa")}</span><span class="record-status">${stateLabel(c)}</span></div></button>`}
+function recordsMarkup(items){return items.map(cardMarkup).join("")}
+function bindRecordClicks(){document.querySelectorAll(".record").forEach(e=>e.onclick=()=>getCase(e.dataset.id).then(showEditor))}
 function renderList(){allCases().then(cs=>{
 let f=[];
 if(appMode==="admin"){
@@ -123,9 +128,7 @@ if(appMode==="admin"){
   const completed=today.filter(c=>c.status==="COMPLETADO");
   $("pendingCount").textContent=pending.length;
   $("completedCount").textContent=completed.length;
-  $("pendingTab").classList.toggle("active",dayTab==="pending");
-  $("completedTab").classList.toggle("active",dayTab==="completed");
-  f=dayTab==="completed"?completed:pending;
+  f=[...pending,...completed];
 }else{
   let d=$("historyDate").value,t=$("historyText").value.toLowerCase();
   f=cs.filter(c=>(c.visitDate||c.fecha)!==nowDate() && (!d||(c.visitDate||c.fecha)===d) && (!t||(c.direccion+" "+c.nombre+" "+c.apellido+" "+c.numParte+" "+c.aseguradora).toLowerCase().includes(t)));
@@ -133,15 +136,18 @@ if(appMode==="admin"){
 let q=$("search").value.toLowerCase();
 if(q && appMode==="admin")f=f.filter(c=>(c.direccion+" "+c.nombre+" "+c.apellido+" "+c.numParte+" "+c.aseguradora).toLowerCase().includes(q));
 $("count").textContent=f.length;
-$("listTitle").textContent=appMode==="admin"?"TODOS LOS PARTES":(listMode==="today"?(dayTab==="completed"?"COMPLETADOS":"PENDIENTES"):"PARTES ANTERIORES");
-$("recordsList").innerHTML=f.map(c=>`<div class="record ${c.id===currentId?"active":""}" data-id="${c.id}" style="padding:14px 16px;margin-bottom:10px;border-radius:12px;border:1px solid #e5e7eb;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.06)"><div style="display:flex;align-items:baseline;gap:10px;margin-bottom:7px"><strong style="font-size:20px;color:#111827">${esc(c.visitDate||c.fecha||"Sin fecha")}</strong><span style="font-size:18px;font-weight:700;color:#374151">${esc(c.hora||"")}</span></div><div style="font-size:15px;font-weight:600;color:#374151;margin-bottom:5px">${esc(c.direccion||"Sin dirección")}</div><div style="font-size:14px;font-weight:700;color:#4b5563">${esc(c.empresa||c.company||"")}</div><div class="status">${esc(c.status)}${appMode==="worker"&&(c.visitDate||c.fecha)===nowDate()?" - EDITABLE HOY":""}</div></div>`).join("");
-document.querySelectorAll(".record").forEach(e=>e.onclick=()=>getCase(e.dataset.id).then(showEditor));
+$("listTitle").textContent=appMode==="admin"?"TODOS LOS PARTES":(listMode==="today"?"PARTES DE HOY":"PARTES ANTERIORES");
+if(appMode==="worker"&&listMode==="today"){
+  const today=cs.filter(c=>visitDay(c)===nowDate()), pending=today.filter(c=>c.status!=="COMPLETADO"), completed=today.filter(c=>c.status==="COMPLETADO");
+  $("recordsList").innerHTML=`<section class="record-group pending-group"><div class="record-group-title">PENDIENTES <span>${pending.length}</span></div>${pending.length?recordsMarkup(pending):'<p class="group-empty">No tienes partes pendientes para hoy.</p>'}</section><section class="record-group completed-group"><div class="record-group-title">COMPLETADOS <span>${completed.length}</span></div>${completed.length?recordsMarkup(completed):'<p class="group-empty">Aún no hay partes completados hoy.</p>'}</section>`;
+}else $("recordsList").innerHTML=recordsMarkup(f);
+bindRecordClicks();
 $("workerTabs").classList.toggle("hidden",appMode!=="worker"||listMode!=="today");
 })}
 function toast(t){$("toast").textContent=t;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2200)}
 async function save(show=true){let c=collect();await putCase(c);window.currentCase=c;currentId=c.id;fill(c);if(show)toast("Siniestro guardado")}
 function renderPhotos(){$("photoCount").textContent=`${photos.length} fotograf\u00eda${photos.length===1?"":"s"}`;$("photoGrid").innerHTML=photos.map((p,i)=>`<div class="photo"><img src="${p.data}" alt="Foto ${i+1}" data-photo-view="${i}">${isReadOnly()?"" : `<button type="button" data-photo="${i}">x</button>`}</div>`).join("");document.querySelectorAll("[data-photo]").forEach(b=>b.onclick=()=>{photos.splice(+b.dataset.photo,1);renderPhotos()});document.querySelectorAll("[data-photo-view]").forEach(img=>img.onclick=()=>{let i=+img.dataset.photoView;let w=window.open("","_blank");w.document.write(`<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;height:100vh"><img src="${photos[i].data}" style="max-width:98%;max-height:98%;object-fit:contain"></body></html>`);w.document.close()})}
-function isReadOnly(){return appMode==="worker" && window.currentCase && window.currentCase.fecha!==nowDate()}
+function isReadOnly(){return appMode==="worker" && window.currentCase && visitDay(window.currentCase)!==nowDate()}
 function setReadOnly(){let ro=isReadOnly();$("readonlyNote").classList.toggle("hidden",!ro);$("saveBtn").classList.toggle("hidden",ro);$("finishBtn").classList.toggle("hidden",ro);$("deleteBtn").classList.toggle("hidden",ro);$("downloadPhotosBtn").classList.remove("hidden");$("printBtn").classList.remove("hidden");document.querySelectorAll("#caseForm input,#caseForm textarea,#caseForm select").forEach(el=>{el.disabled=ro});$("dropZone").classList.toggle("hidden",ro);$("clearSignature").classList.toggle("hidden",ro);$("signature").style.pointerEvents=ro?"none":"auto"}
 async function addFiles(files){const list=[...(files||[])];if(!list.length)return;let n=0;for(const f of list){if(!f.type.startsWith("image/"))continue;try{let data=await new Promise((res,rej)=>{let r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("No se pudo leer la foto"));r.readAsDataURL(f)});photos.push({name:f.name,type:f.type,data,addedAt:Date.now()});n++}catch(e){console.error(e)}}renderPhotos();$("photos").value="";if(n)toast(`${n} fotograf\u00eda${n===1?"":"s"} a\u00f1adida${n===1?"":"s"}`);else toast("No se pudo a\u00f1adir la fotograf\u00eda")}
 $("photos").onchange=e=>{addFiles(e.target.files)};$("dropZone").ondragover=e=>{e.preventDefault()};$("dropZone").ondrop=e=>{e.preventDefault();addFiles(e.dataTransfer.files)};
@@ -240,8 +246,6 @@ $("roleBtn").onclick=()=>{appMode=appMode==="worker"?"admin":"worker";listMode="
 $("historyBtn").onclick=()=>{$("historyPanel").classList.toggle("hidden");if(!$("historyPanel").classList.contains("hidden")){listMode="history";renderList()}};
 $("historySearchBtn").onclick=()=>{listMode="history";renderList()};
 $("todayBtn").onclick=()=>{listMode="today";dayTab="pending";$("historyPanel").classList.add("hidden");renderList()};
-$("pendingTab").onclick=()=>{dayTab="pending";listMode="today";renderList()};
-$("completedTab").onclick=()=>{dayTab="completed";listMode="today";renderList()};
 $("historyDate").onchange=()=>{listMode="history";renderList()};
 $("historyText").oninput=()=>{listMode="history";renderList()};
 $("saveBtn").onclick=()=>save();
@@ -254,4 +258,4 @@ $("downloadPhotosBtn").onclick=async()=>{await save(false);let c=window.currentC
 $("printBtn").onclick=async()=>{await save(false);let c=window.currentCase,ph=c.photos.map((p,i)=>`<img src="${p.data}" style="width:220px;height:165px;object-fit:cover;margin:5px;border:1px solid #ddd">`).join(""),sig=c.signature?`<img src="${c.signature}" style="max-width:420px;max-height:130px">`:"Sin firma";let item=(l,v)=>`<div class="item"><div class="label">${l}</div>${esc(v||"-")}</div>`;let w=open("","_blank");w.document.write(`<html><head><title>Parte ${esc(c.direccion)}</title><style>body{font-family:Arial;padding:35px;color:#111}h1{font-size:25px}h2{font-size:17px;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:25px}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.item{padding:8px;border:1px solid #ddd}.label{font-size:10px;color:#666;text-transform:uppercase}.photos{display:flex;flex-wrap:wrap}</style></head><body><h1>Parte de siniestro</h1><p>Visita: ${esc(c.visitDate||c.fecha)} ${esc(c.hora)} - ${esc(c.direccion)}</p><h2>1. Datos del Asegurado</h2><div class="row">${item("Nombre",c.nombre)}${item("Apellido",c.apellido)}${item("DNI/NIF",c.dni)}${item("Tel&eacute;fono",c.telefono)}${item("Direccion",c.direccion)}${item("Compa&ntilde;&iacute;a",c.aseguradora)}${item("N&ordm; de parte",c.numParte)}${item("Fecha de visita",c.visitDate||c.fecha)}${item("Hora",c.hora)}</div><p><b>Descripci&oacute;n / Qu&eacute; Hacer:</b> ${esc(c.descripcionQueHacer)}</p><h2>2. Comentarios y Fotos</h2><p>${esc(c.observaciones)}</p><div class="photos">${ph}</div><h2>3. Evaluaci&oacute;n de Da&ntilde;os</h2><div class="row">${item("Hay danos?",c.hayDanios)}${item("Donde estan",c.dondeDanios)}${item("Gremios solicitar",c.gremiosSolicitar)}${item("m2 correspondientes",c.metros)}</div><h2>4. Datos del Perjudicado</h2><div class="row">${item("Tel&eacute;fono perjudicado",c.telefonoPerjudicado)}${item("No vivienda",c.numeroVivienda)}</div><p><b>Danos perjudicado:</b> ${esc(c.daniosPerjudicado)}</p><h2>5. Conformidad y Firma</h2>${item("DNI firmante",c.dniFirmante)}<p>${sig}</p><script>window.onload=()=>window.print()<\/script></body></html>`);w.document.close()};
 $("exportBackupBtn").onclick=async()=>{let cs=await allCases();downloadBlob(new Blob([JSON.stringify({version:2,exportedAt:new Date().toISOString(),cases:cs})],{type:"application/json"}),`backup_siniestros_${nowDate()}.json`);toast("Copia de seguridad exportada")};
 $("importBackup").onchange=async e=>{try{let d=JSON.parse(await e.target.files[0].text());for(let c of d.cases||[])await putCase(c);renderList();toast("Copia importada")}catch{alert("No se pudo importar la copia")}};
-(async()=>{await openDB();renderList();let cs=await allCases();if(cs[0])showEditor(cs[0])})();
+(async()=>{await openDB();renderList()})();
