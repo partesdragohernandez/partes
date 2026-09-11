@@ -3,3 +3,4 @@
 .record-date,.record-time{font-size:18px;font-weight:900}
 html,body{max-width:100%;overflow-x:hidden}
 .mobile-menu-btn{display:none}@media(max-width:850px){.mobile-menu-btn{display:block}}
+.improve-text-button{display:block;margin:8px 0;grid-column:1/-1;justify-self:start}.improve-text-button:disabled{opacity:.5;cursor:default}.improve-text-dialog{width:min(640px,calc(100% - 24px));max-height:85dvh;overflow:auto;border:0;border-radius:14px;padding:20px;color:#172033}.improve-text-dialog::backdrop{background:rgba(15,23,42,.55)}.improve-text-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;background:#f4f7fb;padding:12px;border-radius:8px}.improve-text-actions{display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}
