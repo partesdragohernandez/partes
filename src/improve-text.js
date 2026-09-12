@@ -17,13 +17,14 @@ export function setupTextImprovement({ getCaseId, isReadOnly, notify }) {
       if (busy || field.disabled || isReadOnly()) return;
       const original = field.value, caseId = getCaseId();
       if (!original.trim()) return;
+      if (window.currentCase?.version === undefined) return notify('Guarda primero el parte con su trabajador asignado para utilizar Mejorar texto.');
       if (original.length > 4000) return notify('Máximo 4000 caracteres para mejorar texto.');
       busy = true; sync(); button.textContent = 'Mejorando…';
       const unchanged = () => getCaseId() === caseId && field.value === original && !field.disabled && !isReadOnly();
       try {
         const response = await fetch('/api/improve-text', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text: original }), signal: AbortSignal.timeout(30000)
+          method: 'POST', headers: { 'content-type': 'application/json', 'x-requested-with': 'partes' },
+          body: JSON.stringify({ caseId, field: id === 'descripcionQueHacer' ? 'description' : 'observations', text: original }), signal: AbortSignal.timeout(30000)
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'No se pudo mejorar el texto.');

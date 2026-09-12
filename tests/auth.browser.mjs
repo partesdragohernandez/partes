@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import {randomBytes} from 'node:crypto';
+import fs from 'node:fs/promises';
+import {browserFixture} from './browser-fixture.mjs';
+import {canaryDay} from '../backend/http.js';
+const b=await browserFixture(390),{page,f}=b;
+try{
+ const base={assignedUserId:f.users.a.id,visitDate:canaryDay(),company:'Empresa ficticia',status:'PENDIENTE',photos:[],time:'09:00',address:'Calle ficticia'};
+ for(const [id,extra] of [['today-a',{}],['today-b',{assignedUserId:f.users.b.id}],['past-a',{visitDate:'2000-01-01'}],['future-a',{visitDate:'2099-01-01'}]])assert.equal((await f.request('admin','/api/cases','POST',{...base,id,...extra})).status,201);
+ await b.login('a');await page.locator('.record[data-id="today-a"]').waitFor();
+ assert.equal(await page.locator('.record').count(),1);assert.equal(await page.locator('#roleBtn').count(),0);assert.ok(!await page.locator('#newBtn').isVisible());
+ await page.locator('.record').click();await page.locator('#editor').waitFor();
+ assert.ok(await page.locator('#nombre').isDisabled());assert.ok(await page.locator('#descripcionQueHacer').isDisabled());assert.ok(!await page.locator('#observaciones').isDisabled());
+ await page.locator('#observaciones').fill('hay umedad');await page.locator('.improve-text-button').nth(1).click();await page.getByRole('button',{name:'Aceptar mejora'}).click();assert.equal(await page.locator('#observaciones').inputValue(),'Hay humedad.');
+ await page.locator('#finishBtn').click();await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('Falta:'));
+ await page.locator('#nombreFirmante').fill('Firmante ficticio');await page.locator('#dniFirmante').fill('DNI-FICTICIO');
+ await page.locator('#signature').scrollIntoViewIfNeeded();const rect=await page.locator('#signature').boundingBox();await page.mouse.move(rect.x+20,rect.y+60);await page.mouse.down();await page.mouse.move(rect.x+80,rect.y+100,{steps:12});await page.mouse.move(rect.x+160,rect.y+30,{steps:12});await page.mouse.up();
+ const png=await page.locator('#signature').evaluate(c=>c.toDataURL('image/png'));await page.locator('#photos').setInputFiles({name:'foto-ficticia.png',mimeType:'image/png',buffer:Buffer.from(png.split(',')[1],'base64')});await page.waitForFunction(()=>document.querySelectorAll('#photoGrid img').length===1);
+ await page.locator('#finishBtn').click();await page.waitForFunction(()=>window.currentCase?.status==='COMPLETADO');assert.ok(!await page.locator('#observaciones').isDisabled());assert.equal(await page.locator('.completed-group .record').count(),1);
+ const popupPromise=page.waitForEvent('popup');await page.locator('#photoGrid img').click();const photo=await popupPromise;await photo.waitForLoadState();assert.equal(await photo.locator('img').count(),1);await photo.close();
+ await page.getByRole('button',{name:'Marcar como pendiente'}).click();await page.waitForFunction(()=>window.currentCase?.status==='PENDIENTE');
+ await page.locator('#historyBtn').click();await page.locator('#historyDate').fill('2000-01-01');await page.locator('.record[data-id="past-a"]').click();await page.waitForFunction(()=>window.currentCase?.id==='past-a');assert.ok(await page.locator('#observaciones').isDisabled());assert.ok(!await page.locator('#saveBtn').isVisible());
+ const before=b.requests.filter(r=>r.method==='POST').length;
+ const printed=page.waitForEvent('popup');await page.locator('#printBtn').click();const pdf=await printed;await pdf.waitForLoadState();assert.ok((await pdf.locator('body').textContent()).includes('Nombre del firmante'));await pdf.close();
+ await page.locator('#downloadPhotosBtn').click();assert.equal(b.requests.filter(r=>r.method==='POST').length,before);
+ await page.locator('#historyDate').fill('2099-01-01');await page.locator('.record[data-id="future-a"]').click();await page.waitForFunction(()=>window.currentCase?.id==='future-a');assert.ok(await page.locator('#nombreFirmante').isDisabled());
+ await page.screenshot({path:'.wrangler/mobile-worker-readonly.png'});
+ const exported=page.waitForEvent('download');await b.action('exportBackupBtn');const download=await exported;const backup=JSON.parse(await fs.readFile(await download.path(),'utf8'));assert.equal(backup.cases.length,3);assert.ok(backup.cases.every(c=>c.assignedUserId===f.users.a.id));const complete=backup.cases.find(c=>c.id==='today-a');assert.equal(complete.nombreFirmante,'Firmante ficticio');assert.ok(complete.signature);assert.equal(complete.photos.length,1);
+ await b.action('logoutBtn');await page.locator('#loginForm').waitFor();assert.equal(await page.locator('#nombreFirmante').inputValue(),'');
+ await b.login('admin');await b.action('workersBtn');await page.locator('#workersDialog[open]').waitFor();
+ const temporary=('Aa1!'+randomBytes(24).toString('base64url'));for(const [name,value] of Object.entries({displayName:'Trabajador ficticio',username:'nuevo',email:'nuevo@example.test',password:temporary}))await page.locator(`#workerForm [name=${name}]`).fill(value);await page.locator('#workerForm button').click();await page.waitForFunction(()=>document.querySelector('#workersList').textContent.includes('Trabajador ficticio'));
+ const created=f.sqlite.prepare("SELECT * FROM users WHERE username='nuevo'").get();assert.equal(created.role,'worker');assert.equal(created.must_change_password,1);
+ await page.locator('#closeWorkers').click();await page.locator('.record[data-id="today-b"]').click();await page.waitForFunction(()=>window.currentCase?.id==='today-b');await page.locator('#assignedUserId').selectOption(f.users.a.id);await page.locator('#saveBtn').click();await page.waitForFunction(()=>window.currentCase?.version===1);assert.equal(f.sqlite.prepare("SELECT assigned_user_id FROM cases WHERE id='today-b'").get().assigned_user_id,f.users.a.id);
+ await b.action('ocrBtn');await page.locator('#ocrFile').setInputFiles({name:'ocr-ficticio.png',mimeType:'image/png',buffer:Buffer.from(png.split(',')[1],'base64')});await page.locator('#ocrRun').click();await page.waitForFunction(()=>document.querySelector('#nombre').value==='Persona ficticia');assert.equal(await page.locator('#direccion').inputValue(),'Calle ficticia');
+ await b.action('logoutBtn');await page.locator('#loginForm').waitFor();await page.locator('#loginForm [name=username]').fill('nuevo');await page.locator('#loginForm [name=password]').fill(temporary);await page.locator('#loginForm button').click();await page.locator('#passwordForm').waitFor();assert.ok(!await page.locator('.layout').isVisible());
+ const newPassword=('Aa1!'+randomBytes(24).toString('base64url'));await page.locator('#passwordForm [name=currentPassword]').fill(temporary);await page.locator('#passwordForm [name=newPassword]').fill(newPassword);await page.locator('#passwordForm [name=repeat]').fill(newPassword);await page.locator('#passwordForm button[type=submit]').click();await page.locator('#loginForm').waitFor();assert.equal(f.sqlite.prepare('SELECT must_change_password FROM users WHERE id=?').get(created.id).must_change_password,0);
+ assert.deepEqual(b.errors,[]);console.log('PASS integración navegador: login, separación, día, pasado/futuro, firma real del lienzo, fotos/ampliación, estados, Gemini, PDF solo lectura, copia completa, alta, reasignación, OCR simulado, contraseña obligatoria y logout');
+}finally{await b.close()}

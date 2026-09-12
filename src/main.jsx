@@ -1,4 +1,5 @@
 import './styles.css';
+import { api, setupAccount } from './account.js';
 import { setupTextImprovement } from './improve-text.js';
 
 const jszipScript = document.createElement('script');
@@ -14,7 +15,7 @@ document.body.innerHTML = `
 <button class="btn ghost mobile-menu-btn" id="mobileMenuBtn">☰ Menú</button><div class="top-actions">
 <button class="btn primary" id="newBtn">+ Nuevo siniestro</button>
 <button class="btn secondary" id="ocrBtn">Importar parte desde foto</button>
-<button class="btn ghost" id="roleBtn">Modo trabajador</button>
+<span id="sessionUser"></span><button class="btn ghost hidden" id="workersBtn">Trabajadores</button><button class="btn ghost" id="passwordBtn">Cambiar contraseña</button><button class="btn ghost" id="logoutBtn">Cerrar sesión</button>
 <button class="btn ghost" id="exportBackupBtn">Exportar copia</button>
 <label class="btn ghost file-btn">Importar copia<input accept=".json" id="importBackup" type="file"/></label>
 </div>
@@ -27,7 +28,7 @@ document.body.innerHTML = `
 <div class="worker-summary pending-summary">PENDIENTES <span id="pendingCount">0</span></div>
 <div class="worker-summary completed-summary">COMPLETADOS <span id="completedCount">0</span></div>
 </div>
-<button class="btn ghost history-btn" id="historyBtn" type="button">Buscar parte anterior</button>
+<button class="btn ghost history-btn" id="historyBtn" type="button">Consultar otro día</button>
 <div id="historyPanel" class="history-panel hidden">
 <label>Fecha del parte<input id="historyDate" type="date"/></label>
 <input id="historyText" placeholder="Direcci&oacute;n, nombre o n&ordm; de parte..."/>
@@ -40,11 +41,12 @@ document.body.innerHTML = `
 <section class="content">
 <div class="empty" id="empty"><div class="empty-icon"></div><h1>Gesti&oacute;n de partes de siniestro</h1><p>Crea un parte, a&ntilde;ade los datos, las fotograf\u00edas y la firma.</p><button class="btn primary" id="emptyNew">Crear primer siniestro</button></div>
 <div class="editor hidden" id="editor">
-<div class="editor-head"><div><div class="eyebrow" id="statusLabel">BORRADOR</div><h1 id="editorTitle">Nuevo siniestro</h1><div class="meta" id="editorMeta"></div><div class="readonly-note hidden" id="readonlyNote"> Consulta: este parte es de un dia anterior y esta en solo lectura.</div></div><div class="head-actions"><button class="btn primary" id="saveBtn">Guardar</button></div></div>
+<div class="editor-head"><div><div class="eyebrow" id="statusLabel">BORRADOR</div><h1 id="editorTitle">Nuevo siniestro</h1><div class="meta" id="editorMeta"></div><div class="readonly-note hidden" id="readonlyNote"> Consulta: este parte no corresponde a hoy y está en solo lectura.</div></div><div class="head-actions"><button class="btn primary" id="saveBtn">Guardar</button></div></div>
 <form id="caseForm">
 <section class="card">
 <div class="section-title"><span class="num">1</span><div><h2>Datos del Asegurado</h2><p>Informaci&oacute;n principal del parte.</p></div></div>
 <div class="grid">
+<label class="wide" id="assignmentLabel">Trabajador asignado<select id="assignedUserId" required><option value="">Selecciona un trabajador</option></select></label>
 <label>Nombre<input id="nombre" placeholder="Nombre"/></label>
 <label>Apellido<input id="apellido" placeholder="Apellido"/></label>
 <label>DNI / NIF<input id="dni" placeholder="DNI / NIF"/></label>
@@ -83,6 +85,7 @@ document.body.innerHTML = `
 </section>
 <section class="card">
 <div class="section-title"><span class="num">5</span><div><h2>Conformidad y Firma</h2><p>Identificaci&oacute;n del firmante y firma manuscrita.</p></div></div>
+<label>Nombre del firmante<input id="nombreFirmante" placeholder="Nombre de quien firma"/></label>
 <label>DNI Firmante<input id="dniFirmante" placeholder="DNI / NIF del firmante"/></label>
 <div class="signature-wrap"><div class="signature-label">Firma Manuscrita (Dibuja aqu&iacute;)</div><canvas height="260" id="signature" width="900"></canvas><div class="signature-actions"><button class="btn ghost" id="clearSignature" type="button">Borrar firma</button><span id="signatureState">Sin firma</span></div></div>
 </section>
@@ -98,7 +101,7 @@ document.body.innerHTML = `
 `;
 
 
-const DB_NAME="gestion_siniestros_db",STORE="cases";let db,currentId=null,photos=[],signatureData="";let appMode="worker",listMode="today",dayTab="pending";
+const DB_NAME="gestion_siniestros_db",STORE="cases";let db,currentId=null,photos=[],signatureData="";let appMode="worker",listMode="today",dayTab="pending",authUser=null,workers=[];
 const $=id=>document.getElementById(id);
 const mobileMenuBtn=$("mobileMenuBtn"),topActions=document.querySelector(".top-actions");
 if(mobileMenuBtn&&topActions){
@@ -114,27 +117,27 @@ if(mobileMenuBtn&&topActions){
   mobileViewport.addEventListener('change',()=>setMenuOpen(false));
 }
 function uid(){return crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(16).slice(2)}
-function nowDate(){return new Date().toISOString().slice(0,10)} function nowTime(){return new Date().toTimeString().slice(0,5)}
+function nowDate(){return new Intl.DateTimeFormat("en-CA",{timeZone:"Atlantic/Canary",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date())} function nowTime(){return new Intl.DateTimeFormat("en-GB",{timeZone:"Atlantic/Canary",hour:"2-digit",minute:"2-digit",hour12:false}).format(new Date())}
 function esc(s=""){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 function openDB(){return Promise.resolve()}
-function fromApi(r){return {id:r.id||uid(),nombre:r.name||"",apellido:r.surname||"",dni:r.dni||"",telefono:r.phone||"",direccion:r.address||"",aseguradora:r.insurer||"",empresa:r.company||"",numParte:r.claim_no||"",hora:r.time||"",descripcionQueHacer:r.description||"",observaciones:r.observations||"",hayDanios:r.has_damage||"",dondeDanios:r.damage_where||"",gremiosSolicitar:r.trades||"",metros:r.sqm||"",telefonoPerjudicado:r.injured_phone||"",numeroVivienda:r.housing_no||"",daniosPerjudicado:r.injured_damage||"",dniFirmante:r.signer_dni||"",status:r.status||"BORRADOR",visitDate:r.visit_date|| (r.created_at?String(r.created_at).slice(0,10):nowDate()),createdAt:r.created_at?new Date(r.created_at).getTime():Date.now(),updatedAt:r.updated_at?new Date(r.updated_at).getTime():Date.now(),fecha:r.created_at?String(r.created_at).slice(0,10):nowDate(),photos:r.photos||[],signature:r.signature||""}}
-async function allCases(){const r=await fetch('/api/cases');if(!r.ok)throw new Error('No se pudieron cargar los siniestros');return (await r.json()).map(fromApi)}
-async function getCase(id){const r=await fetch('/api/cases/'+encodeURIComponent(id));if(!r.ok)throw new Error('No se pudo abrir el siniestro');return fromApi(await r.json())}
-async function putCase(c){const payload={id:c.id,name:c.nombre,surname:c.apellido,dni:c.dni,phone:c.telefono,address:c.direccion,insurer:c.aseguradora,claimNo:c.numParte,company:c.empresa||"",time:c.hora,visitDate:c.visitDate||c.fecha||nowDate(),description:c.descripcionQueHacer,observations:c.observaciones,hasDamage:c.hayDanios,damageWhere:c.dondeDanios,trades:c.gremiosSolicitar,sqm:c.metros,injuredPhone:c.telefonoPerjudicado,housingNo:c.numeroVivienda,injuredDamage:c.daniosPerjudicado,signerDni:c.dniFirmante,status:c.status,photos:c.photos||[],signature:c.signature||""};const r=await fetch('/api/cases',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});if(!r.ok)throw new Error((await r.text())||'No se pudo guardar');return c}
-async function delCase(id){const r=await fetch('/api/cases/'+encodeURIComponent(id),{method:'DELETE'});if(!r.ok)throw new Error('No se pudo eliminar')}
+function fromApi(r){return {version:r.version,assignedUserId:r.assigned_user_id||"",assignedName:r.assigned_name||"",nombreFirmante:r.signer_name||"",canEdit:r.can_edit,id:r.id||uid(),nombre:r.name||"",apellido:r.surname||"",dni:r.dni||"",telefono:r.phone||"",direccion:r.address||"",aseguradora:r.insurer||"",empresa:r.company||"",numParte:r.claim_no||"",hora:r.time||"",descripcionQueHacer:r.description||"",observaciones:r.observations||"",hayDanios:r.has_damage||"",dondeDanios:r.damage_where||"",gremiosSolicitar:r.trades||"",metros:r.sqm||"",telefonoPerjudicado:r.injured_phone||"",numeroVivienda:r.housing_no||"",daniosPerjudicado:r.injured_damage||"",dniFirmante:r.signer_dni||"",status:r.status||"BORRADOR",visitDate:r.visit_date|| (r.created_at?String(r.created_at).slice(0,10):nowDate()),createdAt:r.created_at?new Date(r.created_at).getTime():Date.now(),updatedAt:r.updated_at?new Date(r.updated_at).getTime():Date.now(),fecha:r.created_at?String(r.created_at).slice(0,10):nowDate(),photos:r.photos||[],signature:r.signature||""}}
+async function allCases(){return (await api('/api/cases')).map(fromApi)}
+async function getCase(id){return fromApi(await api('/api/cases/'+encodeURIComponent(id)))}
+async function putCase(c,importing=false){const payload={id:c.id,version:c.version,assignedUserId:c.assignedUserId||null,signerName:c.nombreFirmante||"",name:c.nombre,surname:c.apellido,dni:c.dni,phone:c.telefono,address:c.direccion,insurer:c.aseguradora,claimNo:c.numParte,company:c.empresa||"",time:c.hora,visitDate:c.visitDate||c.fecha||nowDate(),description:c.descripcionQueHacer,observations:c.observaciones,hasDamage:c.hayDanios,damageWhere:c.dondeDanios,trades:c.gremiosSolicitar,sqm:c.metros,injuredPhone:c.telefonoPerjudicado,housingNo:c.numeroVivienda,injuredDamage:c.daniosPerjudicado,signerDni:c.dniFirmante,status:c.status,photos:(c.photos||[]).map(p=>p.key?{key:p.key,name:p.name}:p),signature:c.signature||""};if(authUser?.role!=="admin")for(const k of ["name","surname","dni","phone","address","company","insurer","claimNo","time","description","visitDate","assignedUserId"])delete payload[k];if(!importing&&c.version!==undefined&&c.signature===window.currentCase?.signature)delete payload.signature;const result=await api(importing?'/api/import':'/api/cases',{method:'POST',body:JSON.stringify(payload)});c.version=result.version;return c}
+async function delCase(id){await api('/api/cases/'+encodeURIComponent(id),{method:'DELETE',body:'{}'})}
 function blankCase(){return{id:uid(),createdAt:Date.now(),updatedAt:Date.now(),status:"BORRADOR",fecha:nowDate(),visitDate:nowDate(),hora:nowTime(),nombre:"",apellido:"",dni:"",telefono:"",direccion:"",aseguradora:"",numParte:"",descripcionQueHacer:"",observaciones:"",photos:[],hayDanios:"",dondeDanios:"",gremiosSolicitar:"",metros:"",telefonoPerjudicado:"",numeroVivienda:"",daniosPerjudicado:"",dniFirmante:"",signature:""}}
-const fields=["fechaVisita","empresa","hora","nombre","apellido","dni","telefono","direccion","aseguradora","numParte","descripcionQueHacer","observaciones","hayDanios","dondeDanios","gremiosSolicitar","metros","telefonoPerjudicado","numeroVivienda","daniosPerjudicado","dniFirmante"];
+const fields=["assignedUserId","nombreFirmante","fechaVisita","empresa","hora","nombre","apellido","dni","telefono","direccion","aseguradora","numParte","descripcionQueHacer","observaciones","hayDanios","dondeDanios","gremiosSolicitar","metros","telefonoPerjudicado","numeroVivienda","daniosPerjudicado","dniFirmante"];
 function collect(){let c={...(window.currentCase||blankCase())};fields.forEach(k=>c[k]=$(k).value);c.visitDate=$("fechaVisita").value||c.visitDate||c.fecha||nowDate();c.photos=photos;c.signature=signatureData;c.updatedAt=Date.now();return c}
-function fill(c){window.currentCase=c;fields.forEach(k=>$(k).value=c[k]||"");photos=c.photos||[];signatureData=c.signature||"";$("fechaVisita").value=c.visitDate||c.fecha||nowDate();$("statusLabel").textContent=c.status;$("editorTitle").textContent=c.direccion||"Nuevo siniestro";$("editorMeta").textContent=`Creado ${new Date(c.createdAt).toLocaleString("es-ES")} - Ultima modificacion ${new Date(c.updatedAt).toLocaleString("es-ES")}`;renderPhotos();renderSignature();setReadOnly();renderList()}
+function fill(c){window.currentCase=c;fillAssignments(c.assignedUserId);fields.forEach(k=>$(k).value=c[k]||"");photos=c.photos||[];signatureData=c.signature||"";$("fechaVisita").value=c.visitDate||c.fecha||nowDate();$("statusLabel").textContent=c.status;$("editorTitle").textContent=c.direccion||"Nuevo siniestro";$("editorMeta").textContent=`Creado ${new Date(c.createdAt).toLocaleString("es-ES")} - Ultima modificacion ${new Date(c.updatedAt).toLocaleString("es-ES")}`;renderPhotos();renderSignature();setReadOnly();renderList()}
 function showEditor(c){currentId=c.id;$("empty").classList.add("hidden");$("editor").classList.remove("hidden");fill(c)}
 function visitDay(c){return c.visitDate||c.fecha||""}
 function formatVisitDay(value){const parts=String(value||"").split("-");return parts.length===3?`${parts[2]}/${parts[1]}/${parts[0]}`:value||"Sin fecha"}
 function stateLabel(c){return c.status==="COMPLETADO"?"COMPLETADO":"PENDIENTE"}
-function cardMarkup(c){const state=stateLabel(c).toLowerCase(),company=String(c.empresa||c.company||"").trim();return `<button class="record ${state} ${c.id===currentId?"active":""}" data-id="${c.id}" type="button"><div class="record-top"><span class="record-date">${esc(formatVisitDay(visitDay(c)))}</span><span class="record-time">${esc(c.hora||"--:--")}</span></div><div class="record-address">${esc(c.direccion||"Sin dirección")}</div><div class="record-bottom">${company?`<span class="record-company">${esc(company)}</span>`:""}<span class="record-status">${stateLabel(c)}</span></div></button>`}
+function cardMarkup(c){const state=stateLabel(c).toLowerCase(),company=String(c.empresa||c.company||"").trim();return `<button class="record ${state} ${c.id===currentId?"active":""}" data-id="${c.id}" type="button"><div class="record-top"><span class="record-date">${esc(formatVisitDay(visitDay(c)))}</span><span class="record-time">${esc(c.hora||"--:--")}</span></div><div class="record-address">${esc(c.direccion||"Sin dirección")}</div><div class="record-bottom">${appMode==="admin"?`<span class="record-assigned">${esc(c.assignedName||"Sin asignar")}</span>`:""}${company?`<span class="record-company">${esc(company)}</span>`:""}<span class="record-status">${stateLabel(c)}</span></div></button>`}
 function recordsMarkup(items){return items.map(cardMarkup).join("")}
 function bindRecordClicks(){document.querySelectorAll(".record").forEach(e=>e.onclick=()=>getCase(e.dataset.id).then(showEditor))}
 function sortByVisitTime(items){return [...items].sort((a,b)=>String(a.hora||"99:99").localeCompare(String(b.hora||"99:99")))}
-function renderList(){allCases().then(cs=>{
+function renderList(){if(!authUser)return;return allCases().then(cs=>{
 let f=[];
 if(appMode==="admin"){
   f=cs;
@@ -152,20 +155,20 @@ if(appMode==="admin"){
 let q=$("search").value.toLowerCase();
 if(q && appMode==="admin")f=f.filter(c=>(c.direccion+" "+c.nombre+" "+c.apellido+" "+c.numParte+" "+c.aseguradora).toLowerCase().includes(q));
 $("count").textContent=f.length;
-$("listTitle").textContent=appMode==="admin"?"TODOS LOS PARTES":(listMode==="today"?"PARTES DE HOY":"PARTES ANTERIORES");
+$("listTitle").textContent=appMode==="admin"?"TODOS LOS PARTES":(listMode==="today"?"PARTES DE HOY":"PARTES DE OTROS DÍAS");
 if(appMode==="worker"&&listMode==="today"){
   const today=cs.filter(c=>visitDay(c)===nowDate()), pending=sortByVisitTime(today.filter(c=>c.status!=="COMPLETADO")), completed=sortByVisitTime(today.filter(c=>c.status==="COMPLETADO"));
   $("recordsList").innerHTML=`<section class="record-group pending-group"><div class="record-group-title">PENDIENTES <span>${pending.length}</span></div>${pending.length?recordsMarkup(pending):'<p class="group-empty">No tienes partes pendientes para hoy.</p>'}</section><section class="record-group completed-group"><div class="record-group-title">COMPLETADOS <span>${completed.length}</span></div>${completed.length?recordsMarkup(completed):'<p class="group-empty">Aún no hay partes completados hoy.</p>'}</section>`;
-}else $("recordsList").innerHTML=recordsMarkup(f);
+}else $("recordsList").innerHTML=recordsMarkup([...f].sort((a,b)=>String(b.visitDate).localeCompare(String(a.visitDate))||String(a.hora).localeCompare(String(b.hora))));
 bindRecordClicks();
 $("workerTabs").classList.toggle("hidden",appMode!=="worker"||listMode!=="today");
-})}
+}).catch(e=>toast(e.message))}
 function toast(t){$("toast").textContent=t;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2200)}
 function validateCompany(){if($("empresa").value.trim())return true;$("empresa").focus();toast("Escribe el nombre de la empresa");return false}
-async function save(show=true){if(!validateCompany())return false;let c=collect();await putCase(c);window.currentCase=c;currentId=c.id;fill(c);if(show)toast("Siniestro guardado");return true}
+async function save(show=true){if(!validateCompany())return false;let c=collect();await putCase(c);c=await getCase(c.id);window.currentCase=c;currentId=c.id;fill(c);if(show)toast("Siniestro guardado");return true}
 function renderPhotos(){$("photoCount").textContent=`${photos.length} fotograf\u00eda${photos.length===1?"":"s"}`;$("photoGrid").innerHTML=photos.map((p,i)=>`<div class="photo"><img src="${p.data}" alt="Foto ${i+1}" data-photo-view="${i}">${isReadOnly()?"" : `<button type="button" data-photo="${i}">x</button>`}</div>`).join("");document.querySelectorAll("[data-photo]").forEach(b=>b.onclick=()=>{photos.splice(+b.dataset.photo,1);renderPhotos()});document.querySelectorAll("[data-photo-view]").forEach(img=>img.onclick=()=>{let i=+img.dataset.photoView;let w=window.open("","_blank");w.document.write(`<html><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;height:100vh"><img src="${photos[i].data}" style="max-width:98%;max-height:98%;object-fit:contain"></body></html>`);w.document.close()})}
-function isReadOnly(){return appMode==="worker" && window.currentCase && visitDay(window.currentCase)!==nowDate()}
-function setReadOnly(){let ro=isReadOnly();$("readonlyNote").classList.toggle("hidden",!ro);$("saveBtn").classList.toggle("hidden",ro);$("finishBtn").classList.toggle("hidden",ro);$("deleteBtn").classList.toggle("hidden",ro);$("downloadPhotosBtn").classList.remove("hidden");$("printBtn").classList.remove("hidden");document.querySelectorAll("#caseForm input,#caseForm textarea,#caseForm select").forEach(el=>{el.disabled=ro});$("dropZone").classList.toggle("hidden",ro);$("clearSignature").classList.toggle("hidden",ro);$("signature").style.pointerEvents=ro?"none":"auto"}
+function isReadOnly(){return !authUser || (appMode==="worker" && (!window.currentCase || window.currentCase.assignedUserId!==authUser.id || visitDay(window.currentCase)!==nowDate()))}
+function setReadOnly(){let ro=isReadOnly();$("readonlyNote").classList.toggle("hidden",!ro);$("saveBtn").classList.toggle("hidden",ro);$("finishBtn").classList.toggle("hidden",ro);$("deleteBtn").classList.toggle("hidden",ro||appMode!=="admin");$("downloadPhotosBtn").classList.remove("hidden");$("printBtn").classList.remove("hidden");document.querySelectorAll("#caseForm input,#caseForm textarea,#caseForm select").forEach(el=>{el.disabled=ro||(appMode!=="admin"&&["assignedUserId","nombre","apellido","dni","telefono","direccion","aseguradora","empresa","numParte","fechaVisita","hora","descripcionQueHacer"].includes(el.id))});$("dropZone").classList.toggle("hidden",ro);$("clearSignature").classList.toggle("hidden",ro);$("signature").style.pointerEvents=ro?"none":"auto"}
 async function addFiles(files){const list=[...(files||[])];if(!list.length)return;let n=0;for(const f of list){if(!f.type.startsWith("image/"))continue;try{let data=await new Promise((res,rej)=>{let r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("No se pudo leer la foto"));r.readAsDataURL(f)});photos.push({name:f.name,type:f.type,data,addedAt:Date.now()});n++}catch(e){console.error(e)}}renderPhotos();$("photos").value="";if(n)toast(`${n} fotograf\u00eda${n===1?"":"s"} a\u00f1adida${n===1?"":"s"}`);else toast("No se pudo a\u00f1adir la fotograf\u00eda")}
 $("photos").onchange=e=>{addFiles(e.target.files)};$("dropZone").ondragover=e=>{e.preventDefault()};$("dropZone").ondrop=e=>{e.preventDefault();addFiles(e.dataTransfer.files)};
 
@@ -246,7 +249,7 @@ async function runOcr(){
  if(!window.Tesseract)return toast("No se pudo cargar el lector de texto");
  $("ocrStatus").textContent="Leyendo el parte...";
  try{const result=await Tesseract.recognize(f,"spa",{logger:m=>{if(m.status&&typeof m.progress==="number")$("ocrStatus").textContent=`${m.status} ${Math.round(m.progress*100)}%`;}});const data=extractOcrFields(result.data.text||"");const n=applyOcrFields(data);$("ocrStatus").textContent=`Listo. Se han rellenado ${n} campos. Revisa los datos antes de guardar.`;$("ocrModal").classList.add("hidden");renderList();toast(`Parte leido: ${n} campos rellenados`);}catch(e){console.error(e);$("ocrStatus").textContent="No se pudo leer la imagen. Prueba con una captura mas clara.";}}
-$("ocrBtn").onclick=async()=>{if(appMode!=="admin"){toast("Los partes los prepara administracion");return}let c=blankCase();await putCase(c);showEditor(c);$("ocrModal").classList.remove("hidden");$("ocrFile").value="";$("ocrPreview").classList.add("hidden");$("ocrStatus").textContent="Esperando una imagen...";};
+$("ocrBtn").onclick=async()=>{if(appMode!=="admin"){toast("Los partes los prepara administracion");return}let c=blankCase();showEditor(c);$("ocrModal").classList.remove("hidden");$("ocrFile").value="";$("ocrPreview").classList.add("hidden");$("ocrStatus").textContent="Esperando una imagen...";};
 $("ocrCancel").onclick=()=>$("ocrModal").classList.add("hidden");
 $("ocrFile").onchange=e=>{let f=e.target.files[0];if(!f)return;ocrImageFile=f;let r=new FileReader();r.onload=()=>{$("ocrPreview").src=r.result;$("ocrPreview").classList.remove("hidden")};r.readAsDataURL(f)};
 $("ocrRun").onclick=runOcr;
@@ -258,22 +261,50 @@ function renderSignature(){resizeCanvas();$("signatureState").textContent=signat
 $("clearSignature").onclick=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);signatureData="";$("signatureState").textContent="Sin firma"}
 window.onresize=()=>{if(!$("editor").classList.contains("hidden"))renderSignature()};
 $("ocrBtn").classList.add("hidden");
-$("newBtn").onclick=$("emptyNew").onclick=async()=>{if(appMode!=="admin"){toast("Los partes los prepara administracion");return}let c=blankCase();await putCase(c);showEditor(c);toast("Nuevo siniestro creado")};
-$("roleBtn").onclick=()=>{appMode=appMode==="worker"?"admin":"worker";listMode="today";dayTab="pending";if(window.currentCase){fill(window.currentCase);}$("roleBtn").textContent=appMode==="worker"?"Modo trabajador":"Modo administracion";$("newBtn").classList.toggle("hidden",appMode!=="admin");$("ocrBtn").classList.toggle("hidden",appMode!=="admin");$("historyBtn").classList.toggle("hidden",appMode==="admin");$("historyPanel").classList.add("hidden");renderList();toast(appMode==="worker"?"Modo trabajador":"Modo administracion")};
+$("newBtn").onclick=$("emptyNew").onclick=async()=>{if(appMode!=="admin"){toast("Los partes los prepara administracion");return}let c=blankCase();showEditor(c);toast("Completa los datos y asigna un trabajador antes de guardar.")};
 $("historyBtn").onclick=()=>{$("historyPanel").classList.toggle("hidden");if(!$("historyPanel").classList.contains("hidden")){listMode="history";renderList()}};
 $("historySearchBtn").onclick=()=>{listMode="history";renderList()};
 $("todayBtn").onclick=()=>{listMode="today";dayTab="pending";$("historyPanel").classList.add("hidden");renderList()};
 $("historyDate").onchange=()=>{listMode="history";renderList()};
 $("historyText").oninput=()=>{listMode="history";renderList()};
-$("saveBtn").onclick=()=>save();
-$("finishBtn").onclick=async()=>{if(!validateCompany())return;let c=collect();c.status="COMPLETADO";await putCase(c);showEditor(c);toast("Parte marcado como completado")};
+$("saveBtn").onclick=()=>save().catch(e=>toast(e.message));
+$("finishBtn").onclick=async()=>{try{if(!validateCompany())return;let c=collect();const missing=[];if(!c.nombreFirmante?.trim())missing.push("Nombre del firmante");if(!c.dniFirmante?.trim())missing.push("DNI firmante");if(!c.signature)missing.push("firma");if(missing.length)return toast("Falta: "+missing.join(", "));c.status="COMPLETADO";await putCase(c);showEditor(await getCase(c.id));toast("Parte marcado como completado")}catch(e){toast(e.message)}};
 $("deleteBtn").onclick=async()=>{if(currentId&&confirm("Eliminar este siniestro y sus fotograf\u00edas?")){await delCase(currentId);currentId=null;$("editor").classList.add("hidden");$("empty").classList.remove("hidden");renderList();toast("Siniestro eliminado")}};
 $("search").oninput=renderList;
 function safe(s=""){return s.replace(/[^\w\daeiouunAEIOUUN-]+/g,"-").replace(/^-|-$/g,"")||"sin-datos"}
 function downloadBlob(b,n){let a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
-$("downloadPhotosBtn").onclick=async()=>{await save(false);let c=window.currentCase;if(!c.photos.length)return toast("No hay fotograf\u00edas");if(typeof JSZip==="undefined"){c.photos.forEach((p,i)=>{let a=document.createElement("a");a.href=p.data;a.download=p.name||`foto-${i+1}.jpg`;a.click()});return}let z=new JSZip();c.photos.forEach((p,i)=>z.file(p.name||`foto-${i+1}.jpg`,p.data.split(",")[1],{base64:true}));let b=await z.generateAsync({type:"blob"});downloadBlob(b,`${safe(c.visitDate||c.fecha)}_${safe(c.hora)}_${safe(c.direccion)}_fotos.zip`);toast("ZIP de fotograf\u00edas preparado")};
-$("printBtn").onclick=async()=>{await save(false);let c=window.currentCase,ph=c.photos.map((p,i)=>`<img src="${p.data}" style="width:220px;height:165px;object-fit:cover;margin:5px;border:1px solid #ddd">`).join(""),sig=c.signature?`<img src="${c.signature}" style="max-width:420px;max-height:130px">`:"Sin firma";let item=(l,v)=>`<div class="item"><div class="label">${l}</div>${esc(v||"-")}</div>`;let w=open("","_blank");w.document.write(`<html><head><title>Parte ${esc(c.direccion)}</title><style>body{font-family:Arial;padding:35px;color:#111}h1{font-size:25px}h2{font-size:17px;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:25px}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.item{padding:8px;border:1px solid #ddd}.label{font-size:10px;color:#666;text-transform:uppercase}.photos{display:flex;flex-wrap:wrap}</style></head><body><h1>Parte de siniestro</h1><p>Visita: ${esc(c.visitDate||c.fecha)} ${esc(c.hora)} - ${esc(c.direccion)}</p><h2>1. Datos del Asegurado</h2><div class="row">${item("Nombre",c.nombre)}${item("Apellido",c.apellido)}${item("DNI/NIF",c.dni)}${item("Tel&eacute;fono",c.telefono)}${item("Direccion",c.direccion)}${item("Compa&ntilde;&iacute;a",c.aseguradora)}${item("N&ordm; de parte",c.numParte)}${item("Fecha de visita",c.visitDate||c.fecha)}${item("Hora",c.hora)}</div><p><b>Descripci&oacute;n / Qu&eacute; Hacer:</b> ${esc(c.descripcionQueHacer)}</p><h2>2. Comentarios y Fotos</h2><p>${esc(c.observaciones)}</p><div class="photos">${ph}</div><h2>3. Evaluaci&oacute;n de Da&ntilde;os</h2><div class="row">${item("Hay danos?",c.hayDanios)}${item("Donde estan",c.dondeDanios)}${item("Gremios solicitar",c.gremiosSolicitar)}${item("m2 correspondientes",c.metros)}</div><h2>4. Datos del Perjudicado</h2><div class="row">${item("Tel&eacute;fono perjudicado",c.telefonoPerjudicado)}${item("No vivienda",c.numeroVivienda)}</div><p><b>Danos perjudicado:</b> ${esc(c.daniosPerjudicado)}</p><h2>5. Conformidad y Firma</h2>${item("DNI firmante",c.dniFirmante)}<p>${sig}</p><script>window.onload=()=>window.print()<\/script></body></html>`);w.document.close()};
-$("exportBackupBtn").onclick=async()=>{let cs=await allCases();downloadBlob(new Blob([JSON.stringify({version:2,exportedAt:new Date().toISOString(),cases:cs})],{type:"application/json"}),`backup_siniestros_${nowDate()}.json`);toast("Copia de seguridad exportada")};
-$("importBackup").onchange=async e=>{try{let d=JSON.parse(await e.target.files[0].text());for(let c of d.cases||[])await putCase(c);renderList();toast("Copia importada")}catch{alert("No se pudo importar la copia")}};
+$("downloadPhotosBtn").onclick=async()=>{let c=await getCase(currentId);if(!c.photos.length)return toast("No hay fotograf\u00edas");if(typeof JSZip==="undefined"){c.photos.forEach((p,i)=>{let a=document.createElement("a");a.href=p.data;a.download=p.name||`foto-${i+1}.jpg`;a.click()});return}let z=new JSZip();c.photos.forEach((p,i)=>z.file(p.name||`foto-${i+1}.jpg`,p.data.split(",")[1],{base64:true}));let b=await z.generateAsync({type:"blob"});downloadBlob(b,`${safe(c.visitDate||c.fecha)}_${safe(c.hora)}_${safe(c.direccion)}_fotos.zip`);toast("ZIP de fotograf\u00edas preparado")};
+$("printBtn").onclick=async()=>{let c=await getCase(currentId),ph=c.photos.map((p,i)=>`<img src="${p.data}" style="width:220px;height:165px;object-fit:cover;margin:5px;border:1px solid #ddd">`).join(""),sig=c.signature?`<img src="${c.signature}" style="max-width:420px;max-height:130px">`:"Sin firma";let item=(l,v)=>`<div class="item"><div class="label">${l}</div>${esc(v||"-")}</div>`;let w=open("","_blank");if(!w)return toast("Permite ventanas emergentes para imprimir.");w.document.write(`<html><head><title>Parte ${esc(c.direccion)}</title><style>body{font-family:Arial;padding:35px;color:#111}h1{font-size:25px}h2{font-size:17px;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:25px}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.item{padding:8px;border:1px solid #ddd}.label{font-size:10px;color:#666;text-transform:uppercase}.photos{display:flex;flex-wrap:wrap}</style></head><body><h1>Parte de siniestro</h1><p>Visita: ${esc(c.visitDate||c.fecha)} ${esc(c.hora)} - ${esc(c.direccion)}</p><h2>1. Datos del Asegurado</h2><div class="row">${item("Nombre",c.nombre)}${item("Apellido",c.apellido)}${item("DNI/NIF",c.dni)}${item("Tel&eacute;fono",c.telefono)}${item("Direccion",c.direccion)}${item("Compa&ntilde;&iacute;a",c.aseguradora)}${item("N&ordm; de parte",c.numParte)}${item("Fecha de visita",c.visitDate||c.fecha)}${item("Hora",c.hora)}</div><p><b>Descripci&oacute;n / Qu&eacute; Hacer:</b> ${esc(c.descripcionQueHacer)}</p><h2>2. Comentarios y Fotos</h2><p>${esc(c.observaciones)}</p><div class="photos">${ph}</div><h2>3. Evaluaci&oacute;n de Da&ntilde;os</h2><div class="row">${item("Hay danos?",c.hayDanios)}${item("Donde estan",c.dondeDanios)}${item("Gremios solicitar",c.gremiosSolicitar)}${item("m2 correspondientes",c.metros)}</div><h2>4. Datos del Perjudicado</h2><div class="row">${item("Tel&eacute;fono perjudicado",c.telefonoPerjudicado)}${item("No vivienda",c.numeroVivienda)}</div><p><b>Danos perjudicado:</b> ${esc(c.daniosPerjudicado)}</p><h2>5. Conformidad y Firma</h2>${item("Nombre del firmante",c.nombreFirmante)}${item("DNI firmante",c.dniFirmante)}<p>${sig}</p><script>window.onload=()=>window.print()<\/script></body></html>`);w.document.close()};
+$("exportBackupBtn").onclick=async()=>{let cs=[];for(const row of await api("/api/export"))cs.push(await getCase(row.id));downloadBlob(new Blob([JSON.stringify({version:3,exportedAt:new Date().toISOString(),cases:cs})],{type:"application/json"}),`backup_siniestros_${nowDate()}.json`);toast("Copia de seguridad exportada")};
+async function chooseImportWorker(){
+ const dialog=document.createElement('dialog');dialog.className='workers-dialog';
+ dialog.innerHTML='<h2>Asignación de la copia</h2><p>Selecciona el trabajador activo para los partes nuevos cuya asignación no exista en esta aplicación.</p><select required></select><p><button type="button" class="btn secondary">Continuar</button> <button type="button" class="btn ghost">Cancelar</button></p>';
+ const select=dialog.querySelector('select');select.add(new Option('Selecciona un trabajador',''));for(const user of workers)if(user.active)select.add(new Option(user.displayName,user.id));
+ document.body.append(dialog);dialog.showModal();
+ return new Promise(resolve=>{let selected=null;dialog.querySelectorAll('button')[0].onclick=()=>{if(!select.reportValidity())return;selected=select.value;dialog.close()};dialog.querySelectorAll('button')[1].onclick=()=>dialog.close();dialog.onclose=()=>{dialog.remove();resolve(selected)}});
+}
+$("importBackup").onchange=async e=>{
+ try{
+  if(!e.target.files[0])return;const d=JSON.parse(await e.target.files[0].text());if(appMode!=="admin")throw new Error("Solo administrador");
+  if(!Array.isArray(d.cases))throw new Error("La copia no contiene una lista de partes válida.");
+  const rows=await allCases();await loadWorkers();
+  const requiresAssignment=d.cases.some(c=>!rows.some(r=>r.id===c.id)&&!workers.some(u=>u.id===c.assignedUserId&&u.active));
+  const defaultWorker=requiresAssignment?await chooseImportWorker():null;if(requiresAssignment&&!defaultWorker)return;
+  for(const c of d.cases){if(c.status==='COMPLETADO'&&(!c.nombreFirmante?.trim()||!c.dniFirmante?.trim()||!c.signature))throw new Error('La copia contiene COMPLETADOS sin Nombre del firmante, DNI o firma. Revisa la copia antes de importarla.');}
+  if(d.cases.some(c=>rows.some(r=>r.id===c.id))&&!confirm('La copia contiene partes existentes. ¿Quieres sustituir sus datos por los de la copia?'))return;
+  for(const c of d.cases){const old=rows.find(r=>r.id===c.id);c.version=old?.version;
+   if(!old&&!workers.some(u=>u.id===c.assignedUserId&&u.active))c.assignedUserId=defaultWorker;
+   if(old&&!c.assignedUserId)c.assignedUserId=old.assignedUserId;
+   c.photos=(c.photos||[]).map(p=>({name:p.name,data:p.data}));await putCase(c,true);
+  }
+  await renderList();toast('Copia importada');
+ }catch(error){alert(error.message||'No se pudo importar la copia');}finally{e.target.value='';}
+};
 setupTextImprovement({ getCaseId: () => currentId, isReadOnly, notify: toast });
-(async()=>{await openDB();renderList()})();
+async function loadWorkers(){workers=authUser?.role==="admin"?await api('/api/admin/users'):[];fillAssignments(window.currentCase?.assignedUserId)}
+function fillAssignments(selected){const el=$("assignedUserId");el.replaceChildren(new Option("Selecciona un trabajador", ""));for(const u of workers)if(u.active||u.id===selected)el.add(new Option(u.displayName+(u.active?"":" (desactivado)"),u.id));el.value=selected||""}
+setupAccount({notify:toast,onWorkersChanged:loadWorkers,onUser:async user=>{authUser=user;appMode=user?.role||"worker";currentId=null;window.currentCase=null;photos=[];signatureData="";listMode="today";$("caseForm").reset();$("photoGrid").replaceChildren();ctx.clearRect(0,0,canvas.width,canvas.height);$("historyPanel").classList.add("hidden");$("historyDate").value="";$("historyText").value="";$("search").value="";$("editorTitle").textContent="";$("editorMeta").textContent="";$("recordsList").replaceChildren();$("editor").classList.add("hidden");$("empty").classList.remove("hidden");for(const id of ["newBtn","emptyNew","ocrBtn","workersBtn"])$(id).classList.toggle("hidden",user?.role!=="admin");$("importBackup").parentElement.classList.toggle("hidden",user?.role!=="admin");$("assignmentLabel").classList.toggle("hidden",user?.role!=="admin");$("sessionUser").textContent=user?user.displayName+" · "+(user.role==="admin"?"Administrador":"Trabajador"):"";$("empty").querySelector("p").textContent=user?.role==="admin"?"Crea un parte y asígnalo a un trabajador.":"Selecciona uno de tus partes asignados o consulta otro día.";if(user){await loadWorkers();await renderList()}}});
+$("caseForm").onsubmit=e=>e.preventDefault();
+const pendingBtn=document.createElement('button');pendingBtn.type='button';pendingBtn.className='btn secondary';pendingBtn.textContent='Marcar como pendiente';$("finishBtn").parentElement.append(pendingBtn);pendingBtn.onclick=async()=>{try{let c=collect();c.status='PENDIENTE';await putCase(c);showEditor(await getCase(c.id))}catch(e){toast(e.message)}};
+new MutationObserver(()=>{pendingBtn.hidden=$("finishBtn").classList.contains('hidden')}).observe($("finishBtn"),{attributes:true,attributeFilter:['class']});
+window.addEventListener('unhandledrejection',e=>{e.preventDefault();toast(e.reason?.message||'No se pudo completar la operación.')});
