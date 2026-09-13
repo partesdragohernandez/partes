@@ -256,7 +256,7 @@ function renderSignature(){resizeCanvas();$("signatureState").textContent=signat
 $("clearSignature").onclick=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);signatureData="";$("signatureState").textContent="Sin firma"}
 window.onresize=()=>{if(!$("editor").classList.contains("hidden"))renderSignature()};
 $("ocrBtn").classList.add("hidden");
-$("newBtn").onclick=$("emptyNew").onclick=async()=>{if(appMode!=="admin"){toast("Los partes los prepara administracion");return}let c=blankCase();showEditor(c);toast("Completa los datos y asigna un trabajador antes de guardar.")};
+$("newBtn").onclick=$("emptyNew").onclick=async()=>{if(appMode!=="admin"){toast("Los partes los prepara administracion");return}let c=blankCase();showEditor(c);$("toast").classList.remove("show");requestAnimationFrame(()=>{const editor=$("editor");editor.style.scrollMarginTop=(document.querySelector(".topbar").getBoundingClientRect().height+12)+"px";editor.scrollIntoView({block:"start",behavior:"instant"});})};
 $("prevDayBtn").onclick=()=>shiftDay(-1);
 $("nextDayBtn").onclick=()=>shiftDay(1);
 $("historyBtn").onclick=()=>{$("historyPanel").classList.toggle("hidden");$("historyDate").value=selectedDay;};
