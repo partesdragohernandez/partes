@@ -23,7 +23,8 @@ document.body.innerHTML = `
 <main class="layout">
 <aside class="sidebar">
 <div class="side-title"><span id="listTitle">PARTES DE HOY</span><span id="count">0</span></div>
-<div class="today-search"><input id="search" placeholder="Buscar en los partes de hoy..."/></div>
+<nav class="day-navigation" aria-label="Día seleccionado"><button type="button" class="btn ghost" id="prevDayBtn" aria-label="Día anterior">←</button><div><span>DÍA SELECCIONADO</span><strong id="selectedDayLabel" aria-live="polite"></strong></div><button type="button" class="btn ghost" id="nextDayBtn" aria-label="Día siguiente">→</button></nav>
+<div class="today-search"><input id="search" placeholder="Buscar en el día seleccionado..."/></div>
 <div id="workerTabs" class="worker-tabs" aria-label="Resumen de partes de hoy">
 <div class="worker-summary pending-summary">PENDIENTES <span id="pendingCount">0</span></div>
 <div class="worker-summary completed-summary">COMPLETADOS <span id="completedCount">0</span></div>
@@ -101,7 +102,7 @@ document.body.innerHTML = `
 `;
 
 
-const DB_NAME="gestion_siniestros_db",STORE="cases";let db,currentId=null,photos=[],signatureData="";let appMode="worker",listMode="today",dayTab="pending",authUser=null,workers=[];
+const DB_NAME="gestion_siniestros_db",STORE="cases";let db,currentId=null,photos=[],signatureData="";let appMode="worker",listMode="today",dayTab="pending",authUser=null,workers=[],selectedDay=nowDate();
 const $=id=>document.getElementById(id);
 const mobileMenuBtn=$("mobileMenuBtn"),topActions=document.querySelector(".top-actions");
 if(mobileMenuBtn&&topActions){
@@ -125,7 +126,7 @@ async function allCases(){return (await api('/api/cases')).map(fromApi)}
 async function getCase(id){return fromApi(await api('/api/cases/'+encodeURIComponent(id)))}
 async function putCase(c,importing=false){const payload={id:c.id,version:c.version,assignedUserId:c.assignedUserId||null,signerName:c.nombreFirmante||"",name:c.nombre,surname:c.apellido,dni:c.dni,phone:c.telefono,address:c.direccion,insurer:c.aseguradora,claimNo:c.numParte,company:c.empresa||"",time:c.hora,visitDate:c.visitDate||c.fecha||nowDate(),description:c.descripcionQueHacer,observations:c.observaciones,hasDamage:c.hayDanios,damageWhere:c.dondeDanios,trades:c.gremiosSolicitar,sqm:c.metros,injuredPhone:c.telefonoPerjudicado,housingNo:c.numeroVivienda,injuredDamage:c.daniosPerjudicado,signerDni:c.dniFirmante,status:c.status,photos:(c.photos||[]).map(p=>p.key?{key:p.key,name:p.name}:p),signature:c.signature||""};if(authUser?.role!=="admin")for(const k of ["name","surname","dni","phone","address","company","insurer","claimNo","time","description","visitDate","assignedUserId"])delete payload[k];if(!importing&&c.version!==undefined&&c.signature===window.currentCase?.signature)delete payload.signature;const result=await api(importing?'/api/import':'/api/cases',{method:'POST',body:JSON.stringify(payload)});c.version=result.version;return c}
 async function delCase(id){await api('/api/cases/'+encodeURIComponent(id),{method:'DELETE',body:'{}'})}
-function blankCase(){return{id:uid(),createdAt:Date.now(),updatedAt:Date.now(),status:"BORRADOR",fecha:nowDate(),visitDate:nowDate(),hora:nowTime(),nombre:"",apellido:"",dni:"",telefono:"",direccion:"",aseguradora:"",numParte:"",descripcionQueHacer:"",observaciones:"",photos:[],hayDanios:"",dondeDanios:"",gremiosSolicitar:"",metros:"",telefonoPerjudicado:"",numeroVivienda:"",daniosPerjudicado:"",dniFirmante:"",signature:""}}
+function blankCase(){return{id:uid(),createdAt:Date.now(),updatedAt:Date.now(),status:"BORRADOR",fecha:nowDate(),visitDate:selectedDay,hora:nowTime(),nombre:"",apellido:"",dni:"",telefono:"",direccion:"",aseguradora:"",numParte:"",descripcionQueHacer:"",observaciones:"",photos:[],hayDanios:"",dondeDanios:"",gremiosSolicitar:"",metros:"",telefonoPerjudicado:"",numeroVivienda:"",daniosPerjudicado:"",dniFirmante:"",signature:""}}
 const fields=["assignedUserId","nombreFirmante","fechaVisita","empresa","hora","nombre","apellido","dni","telefono","direccion","aseguradora","numParte","descripcionQueHacer","observaciones","hayDanios","dondeDanios","gremiosSolicitar","metros","telefonoPerjudicado","numeroVivienda","daniosPerjudicado","dniFirmante"];
 function collect(){let c={...(window.currentCase||blankCase())};fields.forEach(k=>c[k]=$(k).value);c.visitDate=$("fechaVisita").value||c.visitDate||c.fecha||nowDate();c.photos=photos;c.signature=signatureData;c.updatedAt=Date.now();return c}
 function fill(c){window.currentCase=c;fillAssignments(c.assignedUserId);fields.forEach(k=>$(k).value=c[k]||"");photos=c.photos||[];signatureData=c.signature||"";$("fechaVisita").value=c.visitDate||c.fecha||nowDate();$("statusLabel").textContent=c.status;$("editorTitle").textContent=c.direccion||"Nuevo siniestro";$("editorMeta").textContent=`Creado ${new Date(c.createdAt).toLocaleString("es-ES")} - Ultima modificacion ${new Date(c.updatedAt).toLocaleString("es-ES")}`;renderPhotos();renderSignature();setReadOnly();renderList()}
@@ -133,36 +134,30 @@ function showEditor(c){currentId=c.id;$("empty").classList.add("hidden");$("edit
 function visitDay(c){return c.visitDate||c.fecha||""}
 function formatVisitDay(value){const parts=String(value||"").split("-");return parts.length===3?`${parts[2]}/${parts[1]}/${parts[0]}`:value||"Sin fecha"}
 function stateLabel(c){return c.status==="COMPLETADO"?"COMPLETADO":"PENDIENTE"}
-function cardMarkup(c){const state=stateLabel(c).toLowerCase(),company=String(c.empresa||c.company||"").trim();return `<button class="record ${state} ${c.id===currentId?"active":""}" data-id="${c.id}" type="button"><div class="record-top"><span class="record-date">${esc(formatVisitDay(visitDay(c)))}</span><span class="record-time">${esc(c.hora||"--:--")}</span></div><div class="record-address">${esc(c.direccion||"Sin dirección")}</div><div class="record-bottom">${appMode==="admin"?`<span class="record-assigned">${esc(c.assignedName||"Sin asignar")}</span>`:""}${company?`<span class="record-company">${esc(company)}</span>`:""}<span class="record-status">${stateLabel(c)}</span></div></button>`}
+function cardMarkup(c){const state=stateLabel(c).toLowerCase(),company=String(c.empresa||c.company||"").trim();return `<button class="record ${state} ${c.id===currentId?"active":""}" data-id="${c.id}" type="button"><div class="record-top"><span class="record-date">${esc(formatVisitDay(visitDay(c)))}</span><span class="record-time">${esc(c.hora||"--:--")}</span></div><div class="record-address">${esc(c.direccion||"Sin dirección")}</div><div class="record-bottom">${appMode==="admin"?`<span class="record-assigned">${esc(c.assignedName||"SIN ASIGNAR")}</span>`:""}${company?`<span class="record-company">${esc(company)}</span>`:""}<span class="record-status">${stateLabel(c)}</span></div></button>`}
 function recordsMarkup(items){return items.map(cardMarkup).join("")}
 function bindRecordClicks(){document.querySelectorAll(".record").forEach(e=>e.onclick=()=>getCase(e.dataset.id).then(showEditor))}
 function sortByVisitTime(items){return [...items].sort((a,b)=>String(a.hora||"99:99").localeCompare(String(b.hora||"99:99")))}
-function renderList(){if(!authUser)return;return allCases().then(cs=>{
-let f=[];
-if(appMode==="admin"){
-  f=cs;
-}else if(listMode==="today"){
-  const today=cs.filter(c=>(c.visitDate||c.fecha)===nowDate());
-  const pending=today.filter(c=>c.status!=="COMPLETADO");
-  const completed=today.filter(c=>c.status==="COMPLETADO");
-  $("pendingCount").textContent=pending.length;
-  $("completedCount").textContent=completed.length;
-  f=[...pending,...completed];
-}else{
-  let d=$("historyDate").value,t=$("historyText").value.toLowerCase();
-  f=cs.filter(c=>(c.visitDate||c.fecha)!==nowDate() && (!d||(c.visitDate||c.fecha)===d) && (!t||(c.direccion+" "+c.nombre+" "+c.apellido+" "+c.numParte+" "+c.aseguradora).toLowerCase().includes(t)));
+function selectDay(day){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(day))return;
+ selectedDay=day;$("historyDate").value=day;$("selectedDayLabel").textContent=formatVisitDay(day);
+ if(window.currentCase&&visitDay(window.currentCase)!==day){$("editor").classList.add("hidden");$("empty").classList.remove("hidden");}
+ return renderList();
 }
-let q=$("search").value.toLowerCase();
-if(q && appMode==="admin")f=f.filter(c=>(c.direccion+" "+c.nombre+" "+c.apellido+" "+c.numParte+" "+c.aseguradora).toLowerCase().includes(q));
-$("count").textContent=f.length;
-$("listTitle").textContent=appMode==="admin"?"TODOS LOS PARTES":(listMode==="today"?"PARTES DE HOY":"PARTES DE OTROS DÍAS");
-if(appMode==="worker"&&listMode==="today"){
-  const today=cs.filter(c=>visitDay(c)===nowDate()), pending=sortByVisitTime(today.filter(c=>c.status!=="COMPLETADO")), completed=sortByVisitTime(today.filter(c=>c.status==="COMPLETADO"));
-  $("recordsList").innerHTML=`<section class="record-group pending-group"><div class="record-group-title">PENDIENTES <span>${pending.length}</span></div>${pending.length?recordsMarkup(pending):'<p class="group-empty">No tienes partes pendientes para hoy.</p>'}</section><section class="record-group completed-group"><div class="record-group-title">COMPLETADOS <span>${completed.length}</span></div>${completed.length?recordsMarkup(completed):'<p class="group-empty">Aún no hay partes completados hoy.</p>'}</section>`;
-}else $("recordsList").innerHTML=recordsMarkup([...f].sort((a,b)=>String(b.visitDate).localeCompare(String(a.visitDate))||String(a.hora).localeCompare(String(b.hora))));
-bindRecordClicks();
-$("workerTabs").classList.toggle("hidden",appMode!=="worker"||listMode!=="today");
-}).catch(e=>toast(e.message))}
+function shiftDay(delta){const date=new Date(selectedDay+'T12:00:00Z');date.setUTCDate(date.getUTCDate()+delta);return selectDay(date.toISOString().slice(0,10));}
+let listRequest=0;
+function renderList(){if(!authUser)return;const generation=++listRequest;return allCases().then(cs=>{
+ if(generation!==listRequest||!authUser)return;
+ const query=[$("search").value,$("historyText").value].map(v=>v.trim().toLowerCase()).filter(Boolean);
+ const matching=cs.filter(c=>visitDay(c)===selectedDay&&query.every(q=>(c.direccion+' '+c.nombre+' '+c.apellido+' '+c.numParte+' '+c.aseguradora+' '+c.empresa+' '+c.assignedName).toLowerCase().includes(q)));
+ const pending=sortByVisitTime(matching.filter(c=>c.status!=="COMPLETADO")),completed=sortByVisitTime(matching.filter(c=>c.status==="COMPLETADO"));
+ $("selectedDayLabel").textContent=formatVisitDay(selectedDay);$("count").textContent=matching.length;
+ $("listTitle").textContent=appMode==="admin"?"PARTES DEL DÍA":"MIS PARTES DEL DÍA";
+ $("pendingCount").textContent=pending.length;$("completedCount").textContent=completed.length;
+ $("workerTabs").classList.remove('hidden');$("workerTabs").setAttribute('aria-label','Resumen del día seleccionado');
+ $("recordsList").innerHTML='<section class="record-group pending-group"><div class="record-group-title">PENDIENTES <span>'+pending.length+'</span></div>'+(pending.length?recordsMarkup(pending):'<p class="group-empty">No hay partes pendientes para este día.</p>')+'</section><section class="record-group completed-group"><div class="record-group-title">COMPLETADOS <span>'+completed.length+'</span></div>'+(completed.length?recordsMarkup(completed):'<p class="group-empty">No hay partes completados para este día.</p>')+'</section>';
+ bindRecordClicks();
+ }).catch(e=>toast(e.message))}
 function toast(t){$("toast").textContent=t;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2200)}
 function validateCompany(){if($("empresa").value.trim())return true;$("empresa").focus();toast("Escribe el nombre de la empresa");return false}
 async function save(show=true){if(!validateCompany())return false;let c=collect();await putCase(c);c=await getCase(c.id);window.currentCase=c;currentId=c.id;fill(c);if(show)toast("Siniestro guardado");return true}
@@ -262,11 +257,13 @@ $("clearSignature").onclick=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);s
 window.onresize=()=>{if(!$("editor").classList.contains("hidden"))renderSignature()};
 $("ocrBtn").classList.add("hidden");
 $("newBtn").onclick=$("emptyNew").onclick=async()=>{if(appMode!=="admin"){toast("Los partes los prepara administracion");return}let c=blankCase();showEditor(c);toast("Completa los datos y asigna un trabajador antes de guardar.")};
-$("historyBtn").onclick=()=>{$("historyPanel").classList.toggle("hidden");if(!$("historyPanel").classList.contains("hidden")){listMode="history";renderList()}};
-$("historySearchBtn").onclick=()=>{listMode="history";renderList()};
-$("todayBtn").onclick=()=>{listMode="today";dayTab="pending";$("historyPanel").classList.add("hidden");renderList()};
-$("historyDate").onchange=()=>{listMode="history";renderList()};
-$("historyText").oninput=()=>{listMode="history";renderList()};
+$("prevDayBtn").onclick=()=>shiftDay(-1);
+$("nextDayBtn").onclick=()=>shiftDay(1);
+$("historyBtn").onclick=()=>{$("historyPanel").classList.toggle("hidden");$("historyDate").value=selectedDay;};
+$("historySearchBtn").onclick=()=>selectDay($("historyDate").value||selectedDay);
+$("todayBtn").onclick=()=>{$("historyPanel").classList.add("hidden");$("historyText").value="";$("search").value="";selectDay(nowDate());};
+$("historyDate").onchange=()=>selectDay($("historyDate").value||selectedDay);
+$("historyText").oninput=renderList;
 $("saveBtn").onclick=()=>save().catch(e=>toast(e.message));
 $("finishBtn").onclick=async()=>{try{if(!validateCompany())return;let c=collect();const missing=[];if(!c.nombreFirmante?.trim())missing.push("Nombre del firmante");if(!c.dniFirmante?.trim())missing.push("DNI firmante");if(!c.signature)missing.push("firma");if(missing.length)return toast("Falta: "+missing.join(", "));c.status="COMPLETADO";await putCase(c);showEditor(await getCase(c.id));toast("Parte marcado como completado")}catch(e){toast(e.message)}};
 $("deleteBtn").onclick=async()=>{if(currentId&&confirm("Eliminar este siniestro y sus fotograf\u00edas?")){await delCase(currentId);currentId=null;$("editor").classList.add("hidden");$("empty").classList.remove("hidden");renderList();toast("Siniestro eliminado")}};
@@ -303,7 +300,7 @@ $("importBackup").onchange=async e=>{
 setupTextImprovement({ getCaseId: () => currentId, isReadOnly, notify: toast });
 async function loadWorkers(){workers=authUser?.role==="admin"?await api('/api/admin/users'):[];fillAssignments(window.currentCase?.assignedUserId)}
 function fillAssignments(selected){const el=$("assignedUserId");el.replaceChildren(new Option("Selecciona un trabajador", ""));for(const u of workers)if(u.active||u.id===selected)el.add(new Option(u.displayName+(u.active?"":" (desactivado)"),u.id));el.value=selected||""}
-setupAccount({notify:toast,onWorkersChanged:loadWorkers,onUser:async user=>{authUser=user;appMode=user?.role||"worker";currentId=null;window.currentCase=null;photos=[];signatureData="";listMode="today";$("caseForm").reset();$("photoGrid").replaceChildren();ctx.clearRect(0,0,canvas.width,canvas.height);$("historyPanel").classList.add("hidden");$("historyDate").value="";$("historyText").value="";$("search").value="";$("editorTitle").textContent="";$("editorMeta").textContent="";$("recordsList").replaceChildren();$("editor").classList.add("hidden");$("empty").classList.remove("hidden");for(const id of ["newBtn","emptyNew","ocrBtn","workersBtn"])$(id).classList.toggle("hidden",user?.role!=="admin");$("importBackup").parentElement.classList.toggle("hidden",user?.role!=="admin");$("assignmentLabel").classList.toggle("hidden",user?.role!=="admin");$("sessionUser").textContent=user?user.displayName+" · "+(user.role==="admin"?"Administrador":"Trabajador"):"";$("empty").querySelector("p").textContent=user?.role==="admin"?"Crea un parte y asígnalo a un trabajador.":"Selecciona uno de tus partes asignados o consulta otro día.";if(user){await loadWorkers();await renderList()}}});
+setupAccount({notify:toast,onWorkersChanged:loadWorkers,onUser:async user=>{authUser=user;appMode=user?.role||"worker";currentId=null;window.currentCase=null;photos=[];signatureData="";listMode="today";selectedDay=nowDate();listRequest++;$("caseForm").reset();$("photoGrid").replaceChildren();ctx.clearRect(0,0,canvas.width,canvas.height);$("historyPanel").classList.add("hidden");$("historyDate").value="";$("historyText").value="";$("search").value="";$("editorTitle").textContent="";$("editorMeta").textContent="";$("recordsList").replaceChildren();$("editor").classList.add("hidden");$("empty").classList.remove("hidden");for(const id of ["newBtn","emptyNew","ocrBtn","workersBtn"])$(id).classList.toggle("hidden",user?.role!=="admin");$("importBackup").parentElement.classList.toggle("hidden",user?.role!=="admin");$("assignmentLabel").classList.toggle("hidden",user?.role!=="admin");$("sessionUser").textContent=user?user.displayName+" · "+(user.role==="admin"?"Administrador":"Trabajador"):"";$("empty").querySelector("p").textContent=user?.role==="admin"?"Crea un parte y asígnalo a un trabajador.":"Selecciona uno de tus partes asignados o consulta otro día.";if(user){await loadWorkers();await renderList()}}});
 $("caseForm").onsubmit=e=>e.preventDefault();
 const pendingBtn=document.createElement('button');pendingBtn.type='button';pendingBtn.className='btn secondary';pendingBtn.textContent='Marcar como pendiente';$("finishBtn").parentElement.append(pendingBtn);pendingBtn.onclick=async()=>{try{let c=collect();c.status='PENDIENTE';await putCase(c);showEditor(await getCase(c.id))}catch(e){toast(e.message)}};
 new MutationObserver(()=>{pendingBtn.hidden=$("finishBtn").classList.contains('hidden')}).observe($("finishBtn"),{attributes:true,attributeFilter:['class']});

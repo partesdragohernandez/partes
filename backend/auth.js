@@ -29,7 +29,11 @@ export async function supabase(env, path, { admin = false, method = 'POST', data
   catch { fail(503, 'No se puede contactar con el servicio de acceso.'); }
   if (!response.ok) {
     if (response.status === 429) fail(429, 'Servicio de acceso ocupado. Inténtalo más tarde.');
-    fail(admin ? 502 : 401, admin ? 'No se pudo completar la operación de cuenta. Revisa su configuración o si el correo ya existe.' : 'Usuario o contraseña incorrectos.');
+    if (admin && [400,422].includes(response.status)) {
+      const details = await response.json().catch(() => ({}));
+      if (details.code === 'weak_password' || details.error_code === 'weak_password' || /password/i.test(details.msg || details.message || '')) fail(400, 'Supabase no acepta esta contraseña con su política actual. El administrador debe revisar la configuración de contraseñas en Supabase.');
+    }
+    fail(admin ? 502 : 401, admin ? 'No se pudo completar la operación de cuenta. Revisa la configuración de Supabase.' : 'Usuario o contraseña incorrectos.');
   }
   if (response.status === 204) return {};
   return response.json();
@@ -80,7 +84,7 @@ export async function authRoutes(request, env, path) {
   if (path === '/api/auth/me' && request.method === 'GET') return json({ user: publicUser(user) });
   if (path === '/api/auth/change-password' && request.method === 'POST') {
     const data = await body(request); exactKeys(data, ['currentPassword', 'newPassword']);
-    passwordPolicy(data.newPassword);
+    passwordPolicy(data.newPassword, user.role);
     if (data.newPassword === data.currentPassword) fail(400, 'La nueva contraseña debe ser diferente.');
     await rateLimit(env, `password:${user.id}`, 8, 900);
     await checkPassword(env, user, data.currentPassword);
@@ -93,9 +97,10 @@ export async function authRoutes(request, env, path) {
   }
   fail(404, 'Ruta no encontrada.');
 }
-export function passwordPolicy(password) {
-  if (typeof password !== 'string' || password.length < 15 || password.length > 128 || !password.trim()) fail(400, 'La contraseña debe tener entre 15 y 128 caracteres.');
-  if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password) || !/[^a-zA-Z0-9\s]/.test(password)) fail(400, 'La contraseña debe incluir mayúscula, minúscula, número y símbolo, como exige Supabase.');
+export function passwordPolicy(password, role = 'worker') {
+  const min = role === 'admin' ? 15 : 6;
+  if (typeof password !== 'string' || password.length < min || password.length > 128) fail(400, `La contraseña debe tener entre ${min} y 128 caracteres.`);
+  if (role === 'admin' && (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password) || !/[^a-zA-Z0-9\s]/.test(password))) fail(400, 'La contraseña del administrador debe incluir mayúscula, minúscula, número y símbolo.');
 }
 export async function revoke(env, id) {
   await env.DB.batch([
@@ -107,12 +112,15 @@ export async function userRoutes(request, env, user, path) {
   requireAdmin(user);
   if (path === '/api/admin/users' && request.method === 'GET') {
     const result = await env.DB.prepare("SELECT * FROM users WHERE role='worker' ORDER BY display_name").all();
-    return json(result.results.map(u => ({ ...publicUser(u), email: u.email })));
+    return json(result.results.map(publicUser));
   }
   if (path === '/api/admin/users' && request.method === 'POST') {
-    const data = await body(request); exactKeys(data, ['username', 'email', 'displayName', 'password']);
-    const username = text(data.username, 'el usuario', 80).toLowerCase(), email = text(data.email, 'el correo', 254).toLowerCase(), name = text(data.displayName, 'el nombre');
-    if (!/^[a-z0-9._-]{3,80}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Usuario o correo no válido.');
+    const data = await body(request); exactKeys(data, ['username', 'displayName', 'password']);
+    const username = text(data.username, 'el usuario', 80).toLowerCase(), name = text(data.displayName, 'el nombre');
+    if (!/^[a-z0-9._-]{3,80}$/.test(username)) fail(400, 'Usuario no válido.');
+    // Encode the username to avoid invalid email local-parts (leading/consecutive dots).
+    const local = /^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*$/.test(username) && username.length <= 64 ? username : 'u-' + (await digest(username)).slice(0,60);
+    const email = `${local}@users.partes.invalid`;
     passwordPolicy(data.password);
     if (await env.DB.prepare('SELECT id FROM users WHERE username=? OR email=?').bind(username, email).first()) fail(409, 'El usuario o correo ya existe.');
     await rateLimit(env, `admin:${user.id}`, 40, 3600);
